@@ -1,0 +1,11 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <style name="Theme.Lctr_app" parent="Theme.MaterialComponents.DayNight.DarkActionBar">
+        <!-- Настройки темы для всего приложения -->
+    </style>
+
+    <style name="Theme.Lctr_app.Capture" parent="Theme.Lctr_app">
+        <!-- Специализированная тема для активности сканирования QR кодов -->
+    </style>
+    <!-- Другие стили -->
+</resources>

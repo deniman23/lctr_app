@@ -1,3 +1,5 @@
-<resources>
+<?xml version="1.0" encoding="utf-8"?>
+<resources >
     <string name="app_name">lctr_app</string>
+    <string name="capture_activity_label">Capture QR Code</string>
 </resources>
