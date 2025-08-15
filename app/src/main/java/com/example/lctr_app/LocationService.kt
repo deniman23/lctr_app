@@ -1,5 +1,6 @@
 package com.example.lctr_app
 
+import android.app.AlarmManager
 import android.app.NotificationChannel
 import android.app.NotificationManager
 import android.app.PendingIntent
@@ -11,47 +12,35 @@ import android.os.Build
 import android.os.Handler
 import android.os.IBinder
 import android.os.Looper
+import android.os.SystemClock
+import android.preference.PreferenceManager
 import android.util.Log
+import android.widget.Toast
 import androidx.core.app.NotificationCompat
 import com.google.android.gms.location.*
-import okhttp3.Call
-import okhttp3.Callback
-import okhttp3.MediaType.Companion.toMediaType
-import okhttp3.OkHttpClient
-import okhttp3.Request
-import okhttp3.RequestBody.Companion.toRequestBody
-import okhttp3.Response
+import okhttp3.*
 import org.json.JSONObject
 import java.io.IOException
+import androidx.core.content.edit
+import okhttp3.MediaType.Companion.toMediaType
+import okhttp3.RequestBody.Companion.toRequestBody
 
 class LocationService : Service() {
     companion object {
-        // Серверный адрес для отправки данных
-        const val SERVER_URL = "http://178.172.138.123:8080/api/location"
+        const val SERVER_URL = "http://192.168.100.136:8080/api/location"
     }
 
-    // Интервал отправки данных: 15 минут = 15 * 60 * 1000 мс
     private val updateInterval: Long = 15 * 60 * 1000
-
-    // Handler для планирования Runnable
     private val handler = Handler(Looper.getMainLooper())
-
-    // Клиент для получения геолокации с использованием FusedLocationProvider
     private lateinit var fusedLocationClient: FusedLocationProviderClient
-
-    // Данные, переданные из MainActivity (user_id и api_key)
     private var userId: Int = -1
     private var apiKey: String = ""
-
-    // HTTP-клиент для отправки запросов
     private val httpClient = OkHttpClient()
 
-    // Runnable для периодической отправки геоданных
-    private val locationRunnable: Runnable = object : Runnable {
+    private val locationRunnable = object : Runnable {
         override fun run() {
             Log.d("LocationService", "Запуск Runnable для отправки геоданных")
             sendLocationData()
-            // Планируем следующий запуск через заданный интервал
             handler.postDelayed(this, updateInterval)
         }
     }
@@ -62,153 +51,153 @@ class LocationService : Service() {
         startForegroundServiceWithNotification()
     }
 
-    /**
-     * В onStartCommand получаем переданные через Intent параметры,
-     * а затем запускаем периодическую отправку геоданных.
-     */
     override fun onStartCommand(intent: Intent?, flags: Int, startId: Int): Int {
-        intent?.let {
-            userId = it.getIntExtra("user_id", -1)
-            apiKey = it.getStringExtra("api_key") ?: ""
+        // Разбор Intent: либо из Activity, либо при рестарте после onTaskRemoved
+        if (intent?.hasExtra("user_id") == true) {
+            userId = intent.getIntExtra("user_id", -1)
+            apiKey = intent.getStringExtra("api_key") ?: ""
+        } else {
+            // рестартились без Intent — грузим из prefs
+            val prefs = PreferenceManager.getDefaultSharedPreferences(this)
+            userId = prefs.getInt("user_id", -1)
+            apiKey = prefs.getString("api_key", "") ?: ""
         }
-        // Запускаем Runnable сразу
+
+        // Сохраняем в prefs, что сервис жив и параметры
+        PreferenceManager.getDefaultSharedPreferences(this).edit {
+            putBoolean("location_service_active", true)
+                .putInt("user_id", userId)
+                .putString("api_key", apiKey)
+        }
+
+        if (userId == -1 || apiKey.isEmpty()) {
+            showToast("Неверные параметры: user_id или api_key не установлены")
+            Log.e("LocationService", "Параметры не установлены: user_id=$userId, apiKey=$apiKey")
+        }
+
         handler.post(locationRunnable)
         return START_STICKY
     }
 
-    /**
-     * Создание foreground-сервиса с уведомлением.
-     * При нажатии на уведомление открывается MainActivity.
-     */
     private fun startForegroundServiceWithNotification() {
         val channelId = "location_service_channel"
-        val channelName = "Location Service"
-
-        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
-            val channel = NotificationChannel(
-                channelId, channelName, NotificationManager.IMPORTANCE_LOW
-            )
-            val manager = getSystemService(Context.NOTIFICATION_SERVICE) as NotificationManager
-            manager.createNotificationChannel(channel)
-        }
-
-        val notificationIntent = Intent(this, MainActivity::class.java)
-        val pendingIntent = PendingIntent.getActivity(
-            this,
-            0,
-            notificationIntent,
-            if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.M)
-                PendingIntent.FLAG_IMMUTABLE
-            else 0
+        val ch = NotificationChannel(
+            channelId, "Location Service", NotificationManager.IMPORTANCE_LOW
         )
-
-        val notification = NotificationCompat.Builder(this, channelId)
+        (getSystemService(Context.NOTIFICATION_SERVICE) as NotificationManager)
+            .createNotificationChannel(ch)
+        val pi = PendingIntent.getActivity(
+            this, 0,
+            Intent(this, MainActivity::class.java),
+            PendingIntent.FLAG_ONE_SHOT or
+                    PendingIntent.FLAG_IMMUTABLE
+        )
+        val notif = NotificationCompat.Builder(this, channelId)
             .setContentTitle("Отслеживание местоположения")
             .setContentText("Служба отправки геолокации работает")
             .setSmallIcon(android.R.drawable.ic_menu_mylocation)
-            .setContentIntent(pendingIntent)
+            .setContentIntent(pi)
             .build()
-
-        startForeground(1, notification)
+        startForeground(1, notif)
     }
 
-    /**
-     * Метод для отправки данных о местоположении.
-     * 1. Если доступна последняя известная локация, отправляем её.
-     * 2. Если lastLocation вернул null, запрашиваем одно обновление локации.
-     */
     private fun sendLocationData() {
         try {
-            fusedLocationClient.lastLocation.addOnSuccessListener { location: Location? ->
-                if (location != null && userId != -1 && apiKey.isNotEmpty()) {
-                    Log.d("LocationService", "Получена последняя известная локация")
-                    sendData(location)
-                } else {
-                    Log.w("LocationService", "Нет последних геоданных. Пробуем запросить актуальную локацию...")
+            fusedLocationClient.lastLocation
+                .addOnSuccessListener { loc ->
+                    if (loc != null && userId != -1 && apiKey.isNotEmpty()) {
+                        sendData(loc)
+                    } else {
+                        requestCurrentLocation()
+                    }
+                }
+                .addOnFailureListener {
                     requestCurrentLocation()
                 }
-            }.addOnFailureListener { e ->
-                Log.e("LocationService", "Ошибка получения lastLocation: ${e.message}")
-                requestCurrentLocation() // Пробуем запросить обновленную локацию
-            }
         } catch (e: SecurityException) {
-            // Если нет разрешения на доступ к локации
-            Log.e("LocationService", "Необходимы разрешения на определение местоположения: ${e.message}")
+            showToast("Необходимы разрешения для определения местоположения")
         }
     }
 
-    /**
-     * Метод для отправки HTTP-запроса с данными локации.
-     */
     private fun sendData(location: Location) {
         val json = JSONObject().apply {
             put("user_id", userId)
             put("latitude", location.latitude)
             put("longitude", location.longitude)
         }
-
-        val mediaType = "application/json; charset=utf-8".toMediaType()
-        val requestBody = json.toString().toRequestBody(mediaType)
-
-        val request = Request.Builder()
+        val body = json.toString()
+            .toRequestBody("application/json; charset=utf-8".toMediaType())
+        val req = Request.Builder()
             .url(SERVER_URL)
             .addHeader("X-API-Key", apiKey)
-            .post(requestBody)
+            .post(body)
             .build()
 
-        httpClient.newCall(request).enqueue(object : Callback {
+        httpClient.newCall(req).enqueue(object : Callback {
             override fun onFailure(call: Call, e: IOException) {
-                Log.e("LocationService", "Ошибка отправки данных: ${e.message}")
+                showToast("Ошибка отправки данных: ${e.message}")
             }
-
-            override fun onResponse(call: Call, response: Response) {
-                Log.d("LocationService", "Данные отправлены, код ответа: ${response.code}")
-                response.close()
+            override fun onResponse(call: Call, resp: Response) {
+                resp.close()
             }
         })
     }
 
-    /**
-     * Если lastLocation недоступен, запрашиваем одно обновление текущей локации.
-     */
     private fun requestCurrentLocation() {
         try {
-            val locationRequest = LocationRequest.create().apply {
-                // Немедленный запрос
-                interval = 0
-                fastestInterval = 0
-                priority = LocationRequest.PRIORITY_HIGH_ACCURACY
+            val lr = LocationRequest.create().apply {
+                interval = 0; fastestInterval = 0
+                priority = Priority.PRIORITY_HIGH_ACCURACY
                 numUpdates = 1
             }
-
-            val locationCallback = object : LocationCallback() {
-                override fun onLocationResult(locationResult: LocationResult) {
-                    val newLocation = locationResult.lastLocation
-                    if (newLocation != null && userId != -1 && apiKey.isNotEmpty()) {
-                        Log.d("LocationService", "Получена новая локация по запросу")
-                        sendData(newLocation)
-                    } else {
-                        Log.w("LocationService", "Запрошенная локация недоступна или отсутствуют параметры")
-                    }
-                    // Удаляем обновления после получения одной локации
-                    fusedLocationClient.removeLocationUpdates(this)
-                }
-            }
-
             fusedLocationClient.requestLocationUpdates(
-                locationRequest,
-                locationCallback,
+                lr,
+                object : LocationCallback() {
+                    override fun onLocationResult(res: LocationResult) {
+                        res.lastLocation?.let { sendData(it) }
+                        fusedLocationClient.removeLocationUpdates(this)
+                    }
+                },
                 Looper.getMainLooper()
             )
-        } catch (e: SecurityException) {
-            Log.e("LocationService", "Ошибка запроса обновления локации: ${e.message}")
+        } catch (_: SecurityException) { }
+    }
+
+    override fun onTaskRemoved(rootIntent: Intent?) {
+        // сервис будет жить дальше
+        PreferenceManager.getDefaultSharedPreferences(this).edit {
+            putBoolean("location_service_active", true)
         }
+
+        // рестартим через AlarmManager
+        val restart = Intent(applicationContext, LocationService::class.java)
+        val pi = PendingIntent.getService(
+            this, 1, restart,
+            PendingIntent.FLAG_ONE_SHOT or PendingIntent.FLAG_IMMUTABLE
+        )
+        val am = getSystemService(Context.ALARM_SERVICE) as AlarmManager
+        am.set(
+            AlarmManager.ELAPSED_REALTIME,
+            SystemClock.elapsedRealtime() + 1000,
+            pi
+        )
+        super.onTaskRemoved(rootIntent)
     }
 
     override fun onDestroy() {
         handler.removeCallbacks(locationRunnable)
+        // помечаем в prefs, что сервис остановлен
+        PreferenceManager.getDefaultSharedPreferences(this).edit {
+            putBoolean("location_service_active", false)
+        }
         super.onDestroy()
     }
 
     override fun onBind(intent: Intent?): IBinder? = null
+
+    private fun showToast(msg: String) {
+        Handler(Looper.getMainLooper()).post {
+            Toast.makeText(this, msg, Toast.LENGTH_LONG).show()
+        }
+    }
 }
