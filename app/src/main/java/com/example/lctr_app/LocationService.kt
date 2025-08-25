@@ -27,7 +27,7 @@ import okhttp3.RequestBody.Companion.toRequestBody
 
 class LocationService : Service() {
     companion object {
-        const val SERVER_URL = "http://192.168.100.136:8080/api/location"
+        const val SERVER_URL = "http://178.172.173.183:8080/api/location"
     }
 
     private val updateInterval: Long = 15 * 60 * 1000
