@@ -17,11 +17,11 @@ import android.preference.PreferenceManager
 import android.util.Log
 import android.widget.Toast
 import androidx.core.app.NotificationCompat
+import androidx.core.content.edit
 import com.google.android.gms.location.*
 import okhttp3.*
 import org.json.JSONObject
 import java.io.IOException
-import androidx.core.content.edit
 import okhttp3.MediaType.Companion.toMediaType
 import okhttp3.RequestBody.Companion.toRequestBody
 
@@ -30,90 +30,69 @@ class LocationService : Service() {
         const val SERVER_URL = "http://178.172.173.183:8080/api/location"
     }
 
-    private val updateInterval: Long = 15 * 60 * 1000
-    private val handler = Handler(Looper.getMainLooper())
+    // Интервал обновления 15 минут
+    private val updateIntervalMs = 5 * 60 * 1000L
+
     private lateinit var fusedLocationClient: FusedLocationProviderClient
+    private lateinit var locationRequest: LocationRequest
+    private lateinit var locationCallback: LocationCallback
+
     private var userId: Int = -1
     private var apiKey: String = ""
     private val httpClient = OkHttpClient()
-
-    private val locationRunnable = object : Runnable {
-        override fun run() {
-            Log.d("LocationService", "Запуск Runnable для отправки геоданных")
-            sendLocationData()
-            handler.postDelayed(this, updateInterval)
-        }
-    }
 
     override fun onCreate() {
         super.onCreate()
         fusedLocationClient = LocationServices.getFusedLocationProviderClient(this)
         startForegroundServiceWithNotification()
+
+        // Настраиваем запрос локации
+        locationRequest = LocationRequest.create().apply {
+            interval = updateIntervalMs
+            fastestInterval = updateIntervalMs / 2
+            priority = Priority.PRIORITY_HIGH_ACCURACY
+        }
+
+        // Обрабатываем приход локаций
+        locationCallback = object : LocationCallback() {
+            override fun onLocationResult(result: LocationResult) {
+                result.lastLocation?.let { sendData(it) }
+            }
+        }
     }
 
     override fun onStartCommand(intent: Intent?, flags: Int, startId: Int): Int {
-        // Разбор Intent: либо из Activity, либо при рестарте после onTaskRemoved
-        if (intent?.hasExtra("user_id") == true) {
-            userId = intent.getIntExtra("user_id", -1)
-            apiKey = intent.getStringExtra("api_key") ?: ""
-        } else {
-            // рестартились без Intent — грузим из prefs
-            val prefs = PreferenceManager.getDefaultSharedPreferences(this)
-            userId = prefs.getInt("user_id", -1)
-            apiKey = prefs.getString("api_key", "") ?: ""
+        // Читаем параметры из Intent или prefs
+        intent?.let {
+            if (it.hasExtra("user_id")) {
+                userId = it.getIntExtra("user_id", -1)
+                apiKey = it.getStringExtra("api_key") ?: ""
+            }
+        }
+        if (userId == -1 || apiKey.isEmpty()) {
+            showToast("Неверные параметры: user_id=$userId, apiKey='$apiKey'")
+            Log.e("LocationService", "Параметры не установлены: user_id=$userId, apiKey='$apiKey'")
         }
 
-        // Сохраняем в prefs, что сервис жив и параметры
+        // Сохраняем в prefs, что сервис активен и его параметры
         PreferenceManager.getDefaultSharedPreferences(this).edit {
             putBoolean("location_service_active", true)
-                .putInt("user_id", userId)
-                .putString("api_key", apiKey)
+            putInt("user_id", userId)
+            putString("api_key", apiKey)
         }
 
-        if (userId == -1 || apiKey.isEmpty()) {
-            showToast("Неверные параметры: user_id или api_key не установлены")
-            Log.e("LocationService", "Параметры не установлены: user_id=$userId, apiKey=$apiKey")
-        }
-
-        handler.post(locationRunnable)
+        // Запускаем постоянные обновления локации
+        startLocationUpdates()
         return START_STICKY
     }
 
-    private fun startForegroundServiceWithNotification() {
-        val channelId = "location_service_channel"
-        val ch = NotificationChannel(
-            channelId, "Location Service", NotificationManager.IMPORTANCE_LOW
-        )
-        (getSystemService(Context.NOTIFICATION_SERVICE) as NotificationManager)
-            .createNotificationChannel(ch)
-        val pi = PendingIntent.getActivity(
-            this, 0,
-            Intent(this, MainActivity::class.java),
-            PendingIntent.FLAG_ONE_SHOT or
-                    PendingIntent.FLAG_IMMUTABLE
-        )
-        val notif = NotificationCompat.Builder(this, channelId)
-            .setContentTitle("Отслеживание местоположения")
-            .setContentText("Служба отправки геолокации работает")
-            .setSmallIcon(android.R.drawable.ic_menu_mylocation)
-            .setContentIntent(pi)
-            .build()
-        startForeground(1, notif)
-    }
-
-    private fun sendLocationData() {
+    private fun startLocationUpdates() {
         try {
-            fusedLocationClient.lastLocation
-                .addOnSuccessListener { loc ->
-                    if (loc != null && userId != -1 && apiKey.isNotEmpty()) {
-                        sendData(loc)
-                    } else {
-                        requestCurrentLocation()
-                    }
-                }
-                .addOnFailureListener {
-                    requestCurrentLocation()
-                }
+            fusedLocationClient.requestLocationUpdates(
+                locationRequest,
+                locationCallback,
+                Looper.getMainLooper()
+            )
         } catch (e: SecurityException) {
             showToast("Необходимы разрешения для определения местоположения")
         }
@@ -143,33 +122,36 @@ class LocationService : Service() {
         })
     }
 
-    private fun requestCurrentLocation() {
-        try {
-            val lr = LocationRequest.create().apply {
-                interval = 0; fastestInterval = 0
-                priority = Priority.PRIORITY_HIGH_ACCURACY
-                numUpdates = 1
-            }
-            fusedLocationClient.requestLocationUpdates(
-                lr,
-                object : LocationCallback() {
-                    override fun onLocationResult(res: LocationResult) {
-                        res.lastLocation?.let { sendData(it) }
-                        fusedLocationClient.removeLocationUpdates(this)
-                    }
-                },
-                Looper.getMainLooper()
-            )
-        } catch (_: SecurityException) { }
+    private fun startForegroundServiceWithNotification() {
+        val channelId = "location_service_channel"
+        val ch = NotificationChannel(
+            channelId,
+            "Location Service",
+            NotificationManager.IMPORTANCE_LOW
+        )
+        (getSystemService(Context.NOTIFICATION_SERVICE) as NotificationManager)
+            .createNotificationChannel(ch)
+
+        val pi = PendingIntent.getActivity(
+            this, 0,
+            Intent(this, MainActivity::class.java),
+            PendingIntent.FLAG_ONE_SHOT or PendingIntent.FLAG_IMMUTABLE
+        )
+        val notif = NotificationCompat.Builder(this, channelId)
+            .setContentTitle("Отслеживание местоположения")
+            .setContentText("Служба отправки геолокации работает")
+            .setSmallIcon(android.R.drawable.ic_menu_mylocation)
+            .setContentIntent(pi)
+            .build()
+        startForeground(1, notif)
     }
 
     override fun onTaskRemoved(rootIntent: Intent?) {
-        // сервис будет жить дальше
+        // Чтобы сервис не убивался навсегда
         PreferenceManager.getDefaultSharedPreferences(this).edit {
             putBoolean("location_service_active", true)
         }
-
-        // рестартим через AlarmManager
+        // Рестартим через AlarmManager
         val restart = Intent(applicationContext, LocationService::class.java)
         val pi = PendingIntent.getService(
             this, 1, restart,
@@ -185,8 +167,7 @@ class LocationService : Service() {
     }
 
     override fun onDestroy() {
-        handler.removeCallbacks(locationRunnable)
-        // помечаем в prefs, что сервис остановлен
+        fusedLocationClient.removeLocationUpdates(locationCallback)
         PreferenceManager.getDefaultSharedPreferences(this).edit {
             putBoolean("location_service_active", false)
         }
