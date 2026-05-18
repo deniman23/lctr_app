@@ -1,17 +1,16 @@
-# Сборка release APK и выкладка на сервер.
+# Сборка release APK, manifest.json и выкладка на сервер одним workflow.
 #
-# Секреты репозитория (Settings → Secrets):
-#   ANDROID_KEYSTORE_BASE64  — base64 файла .jks/.keystore
-#   ANDROID_KEYSTORE_PASSWORD
-#   ANDROID_KEY_ALIAS
-#   ANDROID_KEY_PASSWORD
-#   DEPLOY_SSH_HOST          — 178.172.235.51
-#   DEPLOY_SSH_USER          — user
-#   DEPLOY_SSH_KEY           — приватный ключ SSH
-#   DEPLOY_REMOTE_DIR        — /var/www/locator/static/releases
-#   LOCATOR_ADMIN_API_KEY    — для POST /api/admin/releases (когда будет на сервере)
+# Секреты (Settings → Secrets):
+#   ANDROID_KEYSTORE_BASE64, ANDROID_KEYSTORE_PASSWORD, ANDROID_KEY_ALIAS, ANDROID_KEY_PASSWORD
+#   DEPLOY_SSH_HOST, DEPLOY_SSH_USER, DEPLOY_SSH_KEY
+#   DEPLOY_REMOTE_DIR  — каталог APK + manifest.json, например:
+#                        /root/locator_go/backend/static/releases
+#   LOCATOR_ADMIN_API_KEY — опционально
 #
-# Перед push: увеличьте versionCode и versionName в app/version.properties
+# Variables (опционально):
+#   LOCATOR_PUBLIC_BASE_URL — http://178.172.235.51:8080
+#
+# Перед push: versionCode +1 в app/version.properties
 
 name: Android Release
 
@@ -49,7 +48,7 @@ jobs:
       - name: Decode signing keystore
         run: |
           if [[ -z "${{ secrets.ANDROID_KEYSTORE_BASE64 }}" ]]; then
-            echo "::error::Добавьте секрет ANDROID_KEYSTORE_BASE64 (см. scripts/ci/create-keystore.sh)"
+            echo "::error::Добавьте секрет ANDROID_KEYSTORE_BASE64"
             exit 1
           fi
           echo "${{ secrets.ANDROID_KEYSTORE_BASE64 }}" | base64 -d > release.keystore
@@ -62,8 +61,10 @@ jobs:
           ANDROID_KEY_PASSWORD: ${{ secrets.ANDROID_KEY_PASSWORD }}
         run: chmod +x gradlew && ./gradlew :app:assembleRelease --no-daemon
 
-      - name: Locate APK
-        id: apk
+      - name: Prepare release artifacts (APK + manifest.json)
+        id: artifacts
+        env:
+          LOCATOR_PUBLIC_BASE_URL: ${{ vars.LOCATOR_PUBLIC_BASE_URL || 'http://178.172.235.51:8080' }}
         run: |
           APK=$(find app/build/outputs/apk/release -name "*.apk" ! -name "*-unsigned.apk" | head -1)
           if [[ -z "$APK" ]]; then
@@ -72,41 +73,83 @@ jobs:
           SHA=$(sha256sum "$APK" | awk '{print $1}')
           NAME="locator-${{ steps.ver.outputs.name }}-${{ steps.ver.outputs.code }}.apk"
           cp "$APK" "$NAME"
+
+          chmod +x scripts/ci/write-manifest-json.sh
+          scripts/ci/write-manifest-json.sh \
+            "${{ steps.ver.outputs.name }}" \
+            "${{ steps.ver.outputs.code }}" \
+            "$NAME" \
+            "$SHA" > manifest.json
+
           echo "file=$NAME" >> "$GITHUB_OUTPUT"
           echo "sha256=$SHA" >> "$GITHUB_OUTPUT"
           echo "APK: $NAME"
           echo "SHA256: $SHA"
+          echo "manifest.json:"
+          cat manifest.json
 
       - name: Upload GitHub artifact
         uses: actions/upload-artifact@v4
         with:
           name: apk-${{ steps.ver.outputs.name }}-${{ steps.ver.outputs.code }}
-          path: ${{ steps.apk.outputs.file }}
+          path: |
+            ${{ steps.artifacts.outputs.file }}
+            manifest.json
 
-      - name: Deploy APK to server (SCP)
+      - name: Deploy to server (APK + manifest.json)
         uses: appleboy/scp-action@v0.1.7
         with:
           host: ${{ secrets.DEPLOY_SSH_HOST }}
           username: ${{ secrets.DEPLOY_SSH_USER }}
           key: ${{ secrets.DEPLOY_SSH_KEY }}
-          source: ${{ steps.apk.outputs.file }}
+          source: "${{ steps.artifacts.outputs.file }},manifest.json"
           target: ${{ secrets.DEPLOY_REMOTE_DIR }}/
           strip_components: 0
 
-      - name: Update locator-latest.apk symlink on server
+      - name: Finalize on server (symlink + manifest check)
         uses: appleboy/ssh-action@v1.0.3
         with:
           host: ${{ secrets.DEPLOY_SSH_HOST }}
           username: ${{ secrets.DEPLOY_SSH_USER }}
           key: ${{ secrets.DEPLOY_SSH_KEY }}
+          script_stop: true
           script: |
-            set -e
-            cd "${{ secrets.DEPLOY_REMOTE_DIR }}"
-            FILE="${{ steps.apk.outputs.file }}"
-            ln -sf "$FILE" locator-latest.apk
-            ls -la locator-latest.apk "$FILE"
-            # Опционально: удалить APK старше 5 последних
-            ls -1t locator-*.apk 2>/dev/null | tail -n +6 | xargs -r rm -f
+            bash -s "${{ secrets.DEPLOY_REMOTE_DIR }}" "${{ steps.artifacts.outputs.file }}" <<'REMOTE'
+            set -euo pipefail
+            REMOTE_DIR="$1"
+            APK_FILENAME="$2"
+            cd "$REMOTE_DIR"
+            if [[ ! -f "$APK_FILENAME" ]]; then
+              echo "ERROR: APK missing: $REMOTE_DIR/$APK_FILENAME" >&2
+              exit 1
+            fi
+            if [[ ! -f manifest.json ]]; then
+              echo "ERROR: manifest.json missing in $REMOTE_DIR" >&2
+              exit 1
+            fi
+            ln -sf "$APK_FILENAME" locator-latest.apk
+            python3 <<PY
+            import json, sys
+            with open("manifest.json", encoding="utf-8") as f:
+                m = json.load(f)
+            apk = "$APK_FILENAME"
+            errs = []
+            if m.get("filename") != apk:
+                errs.append(f"filename: manifest={m.get('filename')!r} != {apk!r}")
+            for k in ("version_code", "version_name", "sha256", "url"):
+                if not m.get(k):
+                    errs.append(f"missing {k}")
+            if errs:
+                print("manifest validation FAILED:", file=sys.stderr)
+                for e in errs:
+                    print(" -", e, file=sys.stderr)
+                sys.exit(1)
+            print("manifest.json OK")
+            print(json.dumps(m, indent=2, ensure_ascii=False))
+            PY
+            ls -la locator-latest.apk manifest.json "$APK_FILENAME"
+            ls -1t locator-*.apk 2>/dev/null | tail -n +6 | xargs -r rm -f || true
+            REMOTE
 
       - name: Register release metadata on API
         env:
@@ -121,27 +164,33 @@ jobs:
           ./scripts/ci/register-release-on-server.sh \
             "${{ steps.ver.outputs.name }}" \
             "${{ steps.ver.outputs.code }}" \
-            "/static/releases/${{ steps.apk.outputs.file }}" \
-            "${{ steps.apk.outputs.sha256 }}" || echo "::warning::API register skipped or failed"
+            "/static/releases/${{ steps.artifacts.outputs.file }}" \
+            "${{ steps.artifacts.outputs.sha256 }}" || echo "::warning::API register skipped or failed"
 
       - name: Summary
         run: |
           {
             echo "## Release ${{ steps.ver.outputs.name }} (${{ steps.ver.outputs.code }})"
-            echo "- APK: \`${{ steps.apk.outputs.file }}\`"
-            echo "- SHA256: \`${{ steps.apk.outputs.sha256 }}\`"
+            echo "- APK: \`${{ steps.artifacts.outputs.file }}\`"
+            echo "- SHA256: \`${{ steps.artifacts.outputs.sha256 }}\`"
+            echo "- Deployed: APK + \`manifest.json\` → \`${{ secrets.DEPLOY_REMOTE_DIR }}\`"
             echo ""
-            echo "### app_update payload (version_code MUST match APK):"
+            echo '### manifest.json (на сервере)'
+            echo '```json'
+            cat manifest.json
+            echo '```'
+            echo ""
+            echo "### app_update payload"
             echo '```json'
             echo '{'
             echo '  "command": {'
             echo '    "type": "app_update",'
             echo '    "id": "release-'"${{ steps.ver.outputs.code }}"'",'
             echo '    "payload": {'
-            echo '      "url": "/static/releases/${{ steps.apk.outputs.file }}",'
+            echo '      "url": "/static/releases/${{ steps.artifacts.outputs.file }}",'
             echo '      "version": "${{ steps.ver.outputs.name }}",'
             echo '      "version_code": ${{ steps.ver.outputs.code }},'
-            echo '      "sha256": "${{ steps.apk.outputs.sha256 }}"'
+            echo '      "sha256": "${{ steps.artifacts.outputs.sha256 }}"'
             echo '    }'
             echo '  }'
             echo '}'

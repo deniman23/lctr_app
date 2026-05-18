@@ -11,7 +11,8 @@
 | Версия (единственный источник) | `app/version.properties` |
 | CI workflow | `.github/workflows/android-release.yml` |
 | Сервер API | `http://178.172.235.51:8080` |
-| APK на сервере | `/var/www/locator/static/releases/` |
+| APK на сервере | `DEPLOY_REMOTE_DIR` (например `/root/locator_go/backend/static/releases/`) |
+| **manifest.json** | тот же каталог, обновляется CI автоматически |
 | URL раздачи | `/static/releases/locator-{versionName}-{versionCode}.apk` |
 | Симлинк latest | `locator-latest.apk` |
 | Подпись | release keystore (`keystore/lctr-release.jks`, секреты в GitHub) |
@@ -56,7 +57,14 @@ Push в `main` запускает CI, если изменились `app/**` (в
 
 - Workflow: **Android Release**
 - Успех: job зелёный, артефакт `apk-{versionName}-{versionCode}`
-- **Summary** job: имя APK, SHA256, готовый JSON `app_update`
+- На сервере: APK + **`manifest.json`** (поля `version_code`, `sha256`, `url`, …)
+- **Summary** job: имя APK, SHA256, `manifest.json`, готовый JSON `app_update`
+
+Проверка manifest:
+
+```bash
+curl -s http://178.172.235.51:8080/static/releases/manifest.json | jq .
+```
 
 Если CI упал — см. раздел «Типичные ошибки CI» ниже.
 
@@ -129,8 +137,10 @@ SharedPreferences (отладка OTA): `app_update_state`, `app_update_error`.
 | `DEPLOY_SSH_HOST` | `178.172.235.51` |
 | `DEPLOY_SSH_USER` | |
 | `DEPLOY_SSH_KEY` | приватный ключ |
-| `DEPLOY_REMOTE_DIR` | `/var/www/locator/static/releases` |
+| `DEPLOY_REMOTE_DIR` | `/root/locator_go/backend/static/releases` (или ваш путь) |
 | `LOCATOR_ADMIN_API_KEY` | опционально |
+
+Repository variable (опционально): `LOCATOR_PUBLIC_BASE_URL` = `http://178.172.235.51:8080`
 
 Локальная сборка без CI:
 
