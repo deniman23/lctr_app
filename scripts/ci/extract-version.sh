@@ -1,6 +1,8 @@
 #!/usr/bin/env bash
 set -euo pipefail
-ROOT="$(cd "$(dirname "$0")/../.." && pwd)"
+# BASH_SOURCE: корректный путь и при `source` из GitHub Actions (где $0 = bash)
+SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]:-$0}")" && pwd)"
+ROOT="$(cd "$SCRIPT_DIR/../.." && pwd)"
 PROPS="$ROOT/app/version.properties"
 
 export VERSION_CODE

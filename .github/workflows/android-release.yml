@@ -40,6 +40,8 @@ jobs:
       - name: Read version
         id: ver
         run: |
+          chmod +x scripts/ci/extract-version.sh
+          # shellcheck source=/dev/null
           source scripts/ci/extract-version.sh
           echo "code=$VERSION_CODE" >> "$GITHUB_OUTPUT"
           echo "name=$VERSION_NAME" >> "$GITHUB_OUTPUT"
