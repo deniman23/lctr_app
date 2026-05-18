@@ -91,6 +91,10 @@ jobs:
           cp scripts/ci/deploy-release-on-server.sh deploy-release-on-server.sh
           chmod +x deploy-release-on-server.sh
 
+      - name: Encode manifest.json (for SSH force-write)
+        id: manifest_b64
+        run: echo "value=$(base64 -w0 manifest.json)" >> "$GITHUB_OUTPUT"
+
       - name: Upload GitHub artifact
         uses: actions/upload-artifact@v4
         with:
@@ -108,6 +112,25 @@ jobs:
           source: "${{ steps.artifacts.outputs.file }},manifest.json,deploy-release-on-server.sh"
           target: ${{ secrets.DEPLOY_REMOTE_DIR }}/
           strip_components: 0
+          overwrite: true
+
+      - name: Force-update manifest.json on server (SSH)
+        uses: appleboy/ssh-action@v1.0.3
+        env:
+          MANIFEST_B64: ${{ steps.manifest_b64.outputs.value }}
+        with:
+          host: ${{ secrets.DEPLOY_SSH_HOST }}
+          username: ${{ secrets.DEPLOY_SSH_USER }}
+          key: ${{ secrets.DEPLOY_SSH_KEY }}
+          envs: MANIFEST_B64
+          script_stop: true
+          script: |
+            set -euo pipefail
+            REMOTE_DIR="${{ secrets.DEPLOY_REMOTE_DIR }}"
+            echo "$MANIFEST_B64" | base64 -d > "$REMOTE_DIR/manifest.json"
+            chmod 644 "$REMOTE_DIR/manifest.json"
+            echo "manifest.json written to $REMOTE_DIR ($(wc -c < "$REMOTE_DIR/manifest.json") bytes)"
+            head -5 "$REMOTE_DIR/manifest.json"
 
       - name: Finalize on server (symlink + manifest check)
         uses: appleboy/ssh-action@v1.0.3
@@ -121,6 +144,35 @@ jobs:
             REMOTE_DIR="${{ secrets.DEPLOY_REMOTE_DIR }}"
             APK="${{ steps.artifacts.outputs.file }}"
             bash "$REMOTE_DIR/deploy-release-on-server.sh" "$REMOTE_DIR" "$APK"
+            if [[ -n "${{ vars.LOCATOR_RELEASES_MIRROR_DIR }}" ]]; then
+              MIRROR="${{ vars.LOCATOR_RELEASES_MIRROR_DIR }}"
+              mkdir -p "$MIRROR"
+              cp -f "$REMOTE_DIR/manifest.json" "$MIRROR/manifest.json"
+              cp -f "$REMOTE_DIR/$APK" "$MIRROR/$APK"
+              ln -sf "$APK" "$MIRROR/locator-latest.apk"
+              echo "mirrored to $MIRROR"
+              ls -la "$MIRROR/manifest.json" "$MIRROR/$APK"
+            fi
+
+      - name: Verify manifest on public URL
+        env:
+          LOCATOR_PUBLIC_BASE_URL: ${{ vars.LOCATOR_PUBLIC_BASE_URL || 'http://178.172.235.51:8080' }}
+        run: |
+          URL="${LOCATOR_PUBLIC_BASE_URL%/}/static/releases/manifest.json"
+          echo "GET $URL"
+          BODY=$(curl -fsS "$URL")
+          echo "$BODY"
+          echo "$BODY" | python3 -c "
+          import json, sys
+          m = json.load(sys.stdin)
+          expected_code = int('${{ steps.ver.outputs.code }}')
+          expected_name = '${{ steps.ver.outputs.name }}'
+          if m.get('version_code') != expected_code:
+              raise SystemExit(f\"version_code: got {m.get('version_code')}, want {expected_code}\")
+          if m.get('version_name') != expected_name:
+              raise SystemExit(f\"version_name: got {m.get('version_name')!r}, want {expected_name!r}\")
+          print('Public manifest OK')
+          "
 
       - name: Register release metadata on API
         env:
