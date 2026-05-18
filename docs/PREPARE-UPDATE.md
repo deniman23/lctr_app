@@ -140,7 +140,24 @@ SharedPreferences (отладка OTA): `app_update_state`, `app_update_error`.
 | `DEPLOY_REMOTE_DIR` | `/root/locator_go/backend/static/releases` (или ваш путь) |
 | `LOCATOR_ADMIN_API_KEY` | опционально |
 
-Repository variable (опционально): `LOCATOR_PUBLIC_BASE_URL` = `http://178.172.235.51:8080`
+Repository variables (опционально):
+
+| Variable | Значение |
+|----------|----------|
+| `LOCATOR_PUBLIC_BASE_URL` | `http://178.172.235.51:8080` |
+CI **всегда** пишет `manifest.json` в два каталога:
+
+1. `DEPLOY_REMOTE_DIR` (секрет GitHub)
+2. `/root/locator_go/backend/static/releases` (исходники locator_go)
+
+Проверка на сервере:
+
+```bash
+cat /root/locator_go/backend/static/releases/manifest.json
+curl -s http://178.172.235.51:8080/static/releases/manifest.json
+```
+
+Оба должны показывать одинаковый `version_code`.
 
 Локальная сборка без CI:
 
