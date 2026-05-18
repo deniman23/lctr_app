@@ -88,6 +88,9 @@ jobs:
           echo "manifest.json:"
           cat manifest.json
 
+          cp scripts/ci/deploy-release-on-server.sh deploy-release-on-server.sh
+          chmod +x deploy-release-on-server.sh
+
       - name: Upload GitHub artifact
         uses: actions/upload-artifact@v4
         with:
@@ -96,13 +99,13 @@ jobs:
             ${{ steps.artifacts.outputs.file }}
             manifest.json
 
-      - name: Deploy to server (APK + manifest.json)
+      - name: Deploy to server (APK + manifest.json + deploy script)
         uses: appleboy/scp-action@v0.1.7
         with:
           host: ${{ secrets.DEPLOY_SSH_HOST }}
           username: ${{ secrets.DEPLOY_SSH_USER }}
           key: ${{ secrets.DEPLOY_SSH_KEY }}
-          source: "${{ steps.artifacts.outputs.file }},manifest.json"
+          source: "${{ steps.artifacts.outputs.file }},manifest.json,deploy-release-on-server.sh"
           target: ${{ secrets.DEPLOY_REMOTE_DIR }}/
           strip_components: 0
 
@@ -114,42 +117,10 @@ jobs:
           key: ${{ secrets.DEPLOY_SSH_KEY }}
           script_stop: true
           script: |
-            bash -s "${{ secrets.DEPLOY_REMOTE_DIR }}" "${{ steps.artifacts.outputs.file }}" <<'REMOTE'
             set -euo pipefail
-            REMOTE_DIR="$1"
-            APK_FILENAME="$2"
-            cd "$REMOTE_DIR"
-            if [[ ! -f "$APK_FILENAME" ]]; then
-              echo "ERROR: APK missing: $REMOTE_DIR/$APK_FILENAME" >&2
-              exit 1
-            fi
-            if [[ ! -f manifest.json ]]; then
-              echo "ERROR: manifest.json missing in $REMOTE_DIR" >&2
-              exit 1
-            fi
-            ln -sf "$APK_FILENAME" locator-latest.apk
-            python3 <<PY
-            import json, sys
-            with open("manifest.json", encoding="utf-8") as f:
-                m = json.load(f)
-            apk = "$APK_FILENAME"
-            errs = []
-            if m.get("filename") != apk:
-                errs.append(f"filename: manifest={m.get('filename')!r} != {apk!r}")
-            for k in ("version_code", "version_name", "sha256", "url"):
-                if not m.get(k):
-                    errs.append(f"missing {k}")
-            if errs:
-                print("manifest validation FAILED:", file=sys.stderr)
-                for e in errs:
-                    print(" -", e, file=sys.stderr)
-                sys.exit(1)
-            print("manifest.json OK")
-            print(json.dumps(m, indent=2, ensure_ascii=False))
-            PY
-            ls -la locator-latest.apk manifest.json "$APK_FILENAME"
-            ls -1t locator-*.apk 2>/dev/null | tail -n +6 | xargs -r rm -f || true
-            REMOTE
+            REMOTE_DIR="${{ secrets.DEPLOY_REMOTE_DIR }}"
+            APK="${{ steps.artifacts.outputs.file }}"
+            bash "$REMOTE_DIR/deploy-release-on-server.sh" "$REMOTE_DIR" "$APK"
 
       - name: Register release metadata on API
         env:

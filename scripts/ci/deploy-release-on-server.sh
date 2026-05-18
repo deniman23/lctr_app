@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# Выполняется на сервере по SSH после SCP: symlink + проверка manifest.json.
+# Запуск на сервере после SCP: symlink locator-latest.apk + проверка manifest.json.
 set -euo pipefail
 
 REMOTE_DIR="${1:?remote_dir}"
@@ -19,33 +19,30 @@ fi
 
 ln -sf "$APK_FILENAME" locator-latest.apk
 
-python3 <<PY
+python3 -c '
 import json
 import sys
 
+apk = sys.argv[1]
 with open("manifest.json", encoding="utf-8") as f:
     m = json.load(f)
 
-apk = "${APK_FILENAME}"
-errors = []
+errs = []
 if m.get("filename") != apk:
-    errors.append(f"filename mismatch: manifest={m.get('filename')!r} apk={apk!r}")
-if not m.get("sha256"):
-    errors.append("sha256 is empty")
-if not m.get("version_code"):
-    errors.append("version_code is empty")
-if not m.get("url"):
-    errors.append("url is empty")
+    errs.append("filename: manifest=%r != %r" % (m.get("filename"), apk))
+for key in ("version_code", "version_name", "sha256", "url"):
+    if not m.get(key):
+        errs.append("missing " + key)
 
-if errors:
-    print("manifest.json validation FAILED:", file=sys.stderr)
-    for e in errors:
+if errs:
+    print("manifest validation FAILED:", file=sys.stderr)
+    for e in errs:
         print(" -", e, file=sys.stderr)
     sys.exit(1)
 
 print("manifest.json OK")
 print(json.dumps(m, indent=2, ensure_ascii=False))
-PY
+' "$APK_FILENAME"
 
 ls -la locator-latest.apk manifest.json "$APK_FILENAME"
 ls -1t locator-*.apk 2>/dev/null | tail -n +6 | xargs -r rm -f || true
