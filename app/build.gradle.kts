@@ -1,18 +1,38 @@
+import java.util.Properties
+
 plugins {
     alias(libs.plugins.android.application)
     alias(libs.plugins.kotlin.android)
 }
+
+val versionProps = Properties().apply {
+    val file = rootProject.file("app/version.properties")
+    if (file.exists()) load(file.inputStream())
+}
+
+fun versionProp(name: String, fallback: String): String =
+    versionProps.getProperty(name) ?: fallback
 
 android {
     namespace = "com.example.lctr_app"
     compileSdk = 35  // Здесь установлено API 35
 
     defaultConfig {
+        val locatorApiUrl = (project.findProperty("locatorApiUrl") as String?)
+            ?: "http://178.172.235.51:8080/api/location"
+        val locatorApiBase = (project.findProperty("locatorApiBase") as String?)
+            ?: locatorApiUrl.replace(Regex("/api/.*$"), "")
+        val locatorPollIntervalMs = (project.findProperty("locatorPollIntervalMs") as String?)
+            ?.toLongOrNull() ?: 15_000L
+
         applicationId = "com.example.lctr_app"
         minSdk = 28
         targetSdk = 35  // Здесь тоже указан API 35
-        versionCode = 1
-        versionName = "1.0"
+        versionCode = versionProp("versionCode", "1").toInt()
+        versionName = versionProp("versionName", "1.0.0")
+        buildConfigField("String", "LOCATOR_API_URL", "\"$locatorApiUrl\"")
+        buildConfigField("String", "LOCATOR_API_BASE", "\"$locatorApiBase\"")
+        buildConfigField("long", "LOCATOR_POLL_INTERVAL_MS", "${locatorPollIntervalMs}L")
 
         testInstrumentationRunner = "androidx.test.runner.AndroidJUnitRunner"
         vectorDrawables {
@@ -20,10 +40,26 @@ android {
         }
     }
 
+    signingConfigs {
+        create("release") {
+            val keystorePath = System.getenv("ANDROID_KEYSTORE_PATH")
+            if (!keystorePath.isNullOrBlank()) {
+                storeFile = file(keystorePath)
+                storePassword = System.getenv("ANDROID_KEYSTORE_PASSWORD")
+                keyAlias = System.getenv("ANDROID_KEY_ALIAS")
+                keyPassword = System.getenv("ANDROID_KEY_PASSWORD")
+            }
+        }
+    }
+
     buildTypes {
         release {
             isMinifyEnabled = false
             proguardFiles(getDefaultProguardFile("proguard-android-optimize.txt"), "proguard-rules.pro")
+            val releaseSigning = signingConfigs.findByName("release")
+            if (releaseSigning?.storeFile != null) {
+                signingConfig = releaseSigning
+            }
         }
     }
     compileOptions {
@@ -35,6 +71,7 @@ android {
     }
     buildFeatures {
         compose = true
+        buildConfig = true
     }
     composeOptions {
         kotlinCompilerExtensionVersion = "1.5.1"

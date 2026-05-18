@@ -1,0 +1,144 @@
+# Сборка release APK и выкладка на сервер.
+#
+# Секреты репозитория (Settings → Secrets):
+#   ANDROID_KEYSTORE_BASE64  — base64 файла .jks/.keystore
+#   ANDROID_KEYSTORE_PASSWORD
+#   ANDROID_KEY_ALIAS
+#   ANDROID_KEY_PASSWORD
+#   DEPLOY_SSH_HOST          — 178.172.235.51
+#   DEPLOY_SSH_USER          — user
+#   DEPLOY_SSH_KEY           — приватный ключ SSH
+#   DEPLOY_REMOTE_DIR        — /var/www/locator/static/releases
+#   LOCATOR_ADMIN_API_KEY    — для POST /api/admin/releases (когда будет на сервере)
+#
+# Перед push: увеличьте versionCode и versionName в app/build.gradle.kts
+
+name: Android Release
+
+on:
+  push:
+    branches: [main, master]
+    paths:
+      - "app/**"
+      - "gradle/**"
+      - "scripts/ci/**"
+      - ".github/workflows/android-release.yml"
+  workflow_dispatch:
+
+jobs:
+  release:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Set up JDK 17
+        uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: "17"
+
+      - name: Read version
+        id: ver
+        run: |
+          source scripts/ci/extract-version.sh
+          echo "code=$VERSION_CODE" >> "$GITHUB_OUTPUT"
+          echo "name=$VERSION_NAME" >> "$GITHUB_OUTPUT"
+
+      - name: Decode signing keystore
+        run: |
+          if [[ -z "${{ secrets.ANDROID_KEYSTORE_BASE64 }}" ]]; then
+            echo "::error::Добавьте секрет ANDROID_KEYSTORE_BASE64 (см. scripts/ci/create-keystore.sh)"
+            exit 1
+          fi
+          echo "${{ secrets.ANDROID_KEYSTORE_BASE64 }}" | base64 -d > release.keystore
+
+      - name: Assemble release
+        env:
+          ANDROID_KEYSTORE_PATH: ${{ github.workspace }}/release.keystore
+          ANDROID_KEYSTORE_PASSWORD: ${{ secrets.ANDROID_KEYSTORE_PASSWORD }}
+          ANDROID_KEY_ALIAS: ${{ secrets.ANDROID_KEY_ALIAS }}
+          ANDROID_KEY_PASSWORD: ${{ secrets.ANDROID_KEY_PASSWORD }}
+        run: chmod +x gradlew && ./gradlew :app:assembleRelease --no-daemon
+
+      - name: Locate APK
+        id: apk
+        run: |
+          APK=$(find app/build/outputs/apk/release -name "*.apk" ! -name "*-unsigned.apk" | head -1)
+          if [[ -z "$APK" ]]; then
+            APK=$(find app/build/outputs/apk/release -name "*.apk" | head -1)
+          fi
+          SHA=$(sha256sum "$APK" | awk '{print $1}')
+          NAME="locator-${{ steps.ver.outputs.name }}-${{ steps.ver.outputs.code }}.apk"
+          cp "$APK" "$NAME"
+          echo "file=$NAME" >> "$GITHUB_OUTPUT"
+          echo "sha256=$SHA" >> "$GITHUB_OUTPUT"
+          echo "APK: $NAME"
+          echo "SHA256: $SHA"
+
+      - name: Upload GitHub artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: apk-${{ steps.ver.outputs.name }}-${{ steps.ver.outputs.code }}
+          path: ${{ steps.apk.outputs.file }}
+
+      - name: Deploy APK to server (SCP)
+        if: ${{ secrets.DEPLOY_SSH_HOST != '' }}
+        uses: appleboy/scp-action@v0.1.7
+        with:
+          host: ${{ secrets.DEPLOY_SSH_HOST }}
+          username: ${{ secrets.DEPLOY_SSH_USER }}
+          key: ${{ secrets.DEPLOY_SSH_KEY }}
+          source: ${{ steps.apk.outputs.file }}
+          target: ${{ secrets.DEPLOY_REMOTE_DIR }}/
+          strip_components: 0
+
+      - name: Update locator-latest.apk symlink on server
+        if: ${{ secrets.DEPLOY_SSH_HOST != '' }}
+        uses: appleboy/ssh-action@v1.0.3
+        with:
+          host: ${{ secrets.DEPLOY_SSH_HOST }}
+          username: ${{ secrets.DEPLOY_SSH_USER }}
+          key: ${{ secrets.DEPLOY_SSH_KEY }}
+          script: |
+            set -e
+            cd "${{ secrets.DEPLOY_REMOTE_DIR }}"
+            FILE="${{ steps.apk.outputs.file }}"
+            ln -sf "$FILE" locator-latest.apk
+            ls -la locator-latest.apk "$FILE"
+            # Опционально: удалить APK старше 5 последних
+            ls -1t locator-*.apk 2>/dev/null | tail -n +6 | xargs -r rm -f
+
+      - name: Register release metadata on API
+        if: ${{ secrets.LOCATOR_ADMIN_API_KEY != '' }}
+        env:
+          LOCATOR_API_BASE: http://178.172.235.51:8080
+          LOCATOR_ADMIN_API_KEY: ${{ secrets.LOCATOR_ADMIN_API_KEY }}
+        run: |
+          chmod +x scripts/ci/register-release-on-server.sh
+          ./scripts/ci/register-release-on-server.sh \
+            "${{ steps.ver.outputs.name }}" \
+            "${{ steps.ver.outputs.code }}" \
+            "/static/releases/${{ steps.apk.outputs.file }}" \
+            "${{ steps.apk.outputs.sha256 }}" || echo "::warning::API register skipped or failed"
+
+      - name: Summary
+        run: |
+          echo "## Release ${{ steps.ver.outputs.name }} (${{ steps.ver.outputs.code }})" >> "$GITHUB_SUMMARY"
+          echo "- APK: \`${{ steps.apk.outputs.file }}\`" >> "$GITHUB_SUMMARY"
+          echo "- SHA256: \`${{ steps.apk.outputs.sha256 }}\`" >> "$GITHUB_SUMMARY"
+          echo "" >> "$GITHUB_SUMMARY"
+          echo '### app_update payload (version_code MUST match APK):' >> "$GITHUB_SUMMARY"
+          echo '```json' >> "$GITHUB_SUMMARY"
+          echo '{' >> "$GITHUB_SUMMARY"
+          echo '  "command": {' >> "$GITHUB_SUMMARY"
+          echo '    "type": "app_update",' >> "$GITHUB_SUMMARY"
+          echo '    "id": "release-'"${{ steps.ver.outputs.code }}"'",' >> "$GITHUB_SUMMARY"
+          echo '    "payload": {' >> "$GITHUB_SUMMARY"
+          echo '      "url": "/static/releases/${{ steps.apk.outputs.file }}",' >> "$GITHUB_SUMMARY"
+          echo '      "version": "${{ steps.ver.outputs.name }}",' >> "$GITHUB_SUMMARY"
+          echo '      "version_code": ${{ steps.ver.outputs.code }},' >> "$GITHUB_SUMMARY"
+          echo '      "sha256": "${{ steps.apk.outputs.sha256 }}"' >> "$GITHUB_SUMMARY"
+          echo '    }' >> "$GITHUB_SUMMARY"
+          echo '  }' >> "$GITHUB_SUMMARY"
+          echo '}' >> "$GITHUB_SUMMARY"
+          echo '```' >> "$GITHUB_SUMMARY"

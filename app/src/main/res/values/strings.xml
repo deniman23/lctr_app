@@ -2,4 +2,5 @@
 <resources >
     <string name="app_name">lctr_app</string>
     <string name="capture_activity_label">Capture QR Code</string>
+    <string name="device_admin_description">Корпоративный режим: автообновления и политики для рабочих устройств</string>
 </resources>
