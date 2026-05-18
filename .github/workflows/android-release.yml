@@ -126,22 +126,24 @@ jobs:
 
       - name: Summary
         run: |
-          echo "## Release ${{ steps.ver.outputs.name }} (${{ steps.ver.outputs.code }})" >> "$GITHUB_SUMMARY"
-          echo "- APK: \`${{ steps.apk.outputs.file }}\`" >> "$GITHUB_SUMMARY"
-          echo "- SHA256: \`${{ steps.apk.outputs.sha256 }}\`" >> "$GITHUB_SUMMARY"
-          echo "" >> "$GITHUB_SUMMARY"
-          echo '### app_update payload (version_code MUST match APK):' >> "$GITHUB_SUMMARY"
-          echo '```json' >> "$GITHUB_SUMMARY"
-          echo '{' >> "$GITHUB_SUMMARY"
-          echo '  "command": {' >> "$GITHUB_SUMMARY"
-          echo '    "type": "app_update",' >> "$GITHUB_SUMMARY"
-          echo '    "id": "release-'"${{ steps.ver.outputs.code }}"'",' >> "$GITHUB_SUMMARY"
-          echo '    "payload": {' >> "$GITHUB_SUMMARY"
-          echo '      "url": "/static/releases/${{ steps.apk.outputs.file }}",' >> "$GITHUB_SUMMARY"
-          echo '      "version": "${{ steps.ver.outputs.name }}",' >> "$GITHUB_SUMMARY"
-          echo '      "version_code": ${{ steps.ver.outputs.code }},' >> "$GITHUB_SUMMARY"
-          echo '      "sha256": "${{ steps.apk.outputs.sha256 }}"' >> "$GITHUB_SUMMARY"
-          echo '    }' >> "$GITHUB_SUMMARY"
-          echo '  }' >> "$GITHUB_SUMMARY"
-          echo '}' >> "$GITHUB_SUMMARY"
-          echo '```' >> "$GITHUB_SUMMARY"
+          {
+            echo "## Release ${{ steps.ver.outputs.name }} (${{ steps.ver.outputs.code }})"
+            echo "- APK: \`${{ steps.apk.outputs.file }}\`"
+            echo "- SHA256: \`${{ steps.apk.outputs.sha256 }}\`"
+            echo ""
+            echo "### app_update payload (version_code MUST match APK):"
+            echo '```json'
+            echo '{'
+            echo '  "command": {'
+            echo '    "type": "app_update",'
+            echo '    "id": "release-'"${{ steps.ver.outputs.code }}"'",'
+            echo '    "payload": {'
+            echo '      "url": "/static/releases/${{ steps.apk.outputs.file }}",'
+            echo '      "version": "${{ steps.ver.outputs.name }}",'
+            echo '      "version_code": ${{ steps.ver.outputs.code }},'
+            echo '      "sha256": "${{ steps.apk.outputs.sha256 }}"'
+            echo '    }'
+            echo '  }'
+            echo '}'
+            echo '```'
+          } >> "$GITHUB_STEP_SUMMARY"
