@@ -1,11 +1,18 @@
 <?xml version="1.0" encoding="utf-8"?>
 <resources>
-    <style name="Theme.Lctr_app" parent="Theme.MaterialComponents.DayNight.DarkActionBar">
-        <!-- Настройки темы для всего приложения -->
+    <style name="Theme.Lctr_app" parent="Theme.MaterialComponents.Light.NoActionBar">
+        <item name="colorPrimary">@color/system_primary</item>
+        <item name="colorPrimaryDark">@color/system_primary_dark</item>
+        <item name="android:statusBarColor">@color/system_primary_dark</item>
+        <item name="android:navigationBarColor">@color/system_surface</item>
+        <item name="android:windowBackground">@color/system_surface</item>
     </style>
 
-    <style name="Theme.Lctr_app.Capture" parent="Theme.Lctr_app">
-        <!-- Специализированная тема для активности сканирования QR кодов -->
+    <style name="Theme.Lctr_app.Launcher" parent="Theme.MaterialComponents.Light.NoActionBar">
+        <item name="android:windowBackground">@drawable/splash_background</item>
+        <item name="android:statusBarColor">@color/splash_bg</item>
+        <item name="android:navigationBarColor">@color/splash_bg</item>
     </style>
-    <!-- Другие стили -->
+
+    <style name="Theme.Lctr_app.Capture" parent="Theme.Lctr_app" />
 </resources>

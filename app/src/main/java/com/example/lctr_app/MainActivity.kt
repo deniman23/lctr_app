@@ -91,6 +91,7 @@ class MainActivity : ComponentActivity() {
         }
 
     override fun onCreate(savedInstanceState: Bundle?) {
+        setTheme(R.style.Theme_Lctr_app)
         super.onCreate(savedInstanceState)
         deviceConfig = DeviceConfigStore(this)
         deviceConfig.loadFromLegacyPrefsIfNeeded()
