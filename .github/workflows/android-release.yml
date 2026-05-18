@@ -11,7 +11,7 @@
 #   DEPLOY_REMOTE_DIR        — /var/www/locator/static/releases
 #   LOCATOR_ADMIN_API_KEY    — для POST /api/admin/releases (когда будет на сервере)
 #
-# Перед push: увеличьте versionCode и versionName в app/build.gradle.kts
+# Перед push: увеличьте versionCode и versionName в app/version.properties
 
 name: Android Release
 
@@ -82,7 +82,6 @@ jobs:
           path: ${{ steps.apk.outputs.file }}
 
       - name: Deploy APK to server (SCP)
-        if: ${{ secrets.DEPLOY_SSH_HOST != '' }}
         uses: appleboy/scp-action@v0.1.7
         with:
           host: ${{ secrets.DEPLOY_SSH_HOST }}
@@ -93,7 +92,6 @@ jobs:
           strip_components: 0
 
       - name: Update locator-latest.apk symlink on server
-        if: ${{ secrets.DEPLOY_SSH_HOST != '' }}
         uses: appleboy/ssh-action@v1.0.3
         with:
           host: ${{ secrets.DEPLOY_SSH_HOST }}
@@ -109,11 +107,14 @@ jobs:
             ls -1t locator-*.apk 2>/dev/null | tail -n +6 | xargs -r rm -f
 
       - name: Register release metadata on API
-        if: ${{ secrets.LOCATOR_ADMIN_API_KEY != '' }}
         env:
           LOCATOR_API_BASE: http://178.172.235.51:8080
           LOCATOR_ADMIN_API_KEY: ${{ secrets.LOCATOR_ADMIN_API_KEY }}
         run: |
+          if [[ -z "${LOCATOR_ADMIN_API_KEY:-}" ]]; then
+            echo "::notice::LOCATOR_ADMIN_API_KEY not set — skip API register"
+            exit 0
+          fi
           chmod +x scripts/ci/register-release-on-server.sh
           ./scripts/ci/register-release-on-server.sh \
             "${{ steps.ver.outputs.name }}" \
