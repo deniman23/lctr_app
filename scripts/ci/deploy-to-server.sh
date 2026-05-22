@@ -13,9 +13,8 @@ LOCATOR_GO_RELEASES_DIR="${LOCATOR_GO_RELEASES_DIR:-/root/locator_go/backend/sta
 DEPLOY_SSH_PORT="${DEPLOY_SSH_PORT:-22}"
 SCP_TIMEOUT_SEC="${SCP_TIMEOUT_SEC:-900}"
 
-SSH_OPTS=(
+SSH_BASE=(
   -i "$DEPLOY_SSH_KEY_FILE"
-  -p "$DEPLOY_SSH_PORT"
   -o StrictHostKeyChecking=no
   -o UserKnownHostsFile=/dev/null
   -o BatchMode=yes
@@ -24,8 +23,9 @@ SSH_OPTS=(
   -o ServerAliveCountMax=4
   -o TCPKeepAlive=yes
 )
-SSH=(ssh "${SSH_OPTS[@]}" "${DEPLOY_SSH_USER}@${DEPLOY_SSH_HOST}")
-SCP=(scp "${SSH_OPTS[@]}")
+SSH=(ssh "${SSH_BASE[@]}" -p "$DEPLOY_SSH_PORT" "${DEPLOY_SSH_USER}@${DEPLOY_SSH_HOST}")
+# scp: порт только -P (заглавная); -p у scp = preserve times
+SCP=(scp "${SSH_BASE[@]}" -P "$DEPLOY_SSH_PORT")
 
 echo "Primary deploy dir: $DEPLOY_REMOTE_DIR"
 echo "Locator_go dir:     $LOCATOR_GO_RELEASES_DIR"
@@ -40,7 +40,7 @@ echo "mkdir on server..."
 
 APK_SIZE=$(wc -c < "$APK_FILE" | tr -d ' ')
 echo "Uploading APK (${APK_SIZE} bytes) + manifest + deploy script..."
-timeout "$SCP_TIMEOUT_SEC" "${SCP[@]}" -v \
+timeout "$SCP_TIMEOUT_SEC" "${SCP[@]}" \
   "$APK_FILE" "$MANIFEST_FILE" deploy-release-on-server.sh \
   "${DEPLOY_SSH_USER}@${DEPLOY_SSH_HOST}:${DEPLOY_REMOTE_DIR}/"
 
