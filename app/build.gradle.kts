@@ -19,7 +19,7 @@ android {
 
     defaultConfig {
         val locatorApiUrl = (project.findProperty("locatorApiUrl") as String?)
-            ?: "http://178.172.235.51:8080/api/location"
+            ?: "http://87.232.65.52:8080/api/location"
         val locatorApiBase = (project.findProperty("locatorApiBase") as String?)
             ?: locatorApiUrl.replace(Regex("/api/.*$"), "")
         val locatorPollIntervalMs = (project.findProperty("locatorPollIntervalMs") as String?)

@@ -2,7 +2,7 @@
 # Регистрирует релиз в locator_go (эндпоинт нужно реализовать на сервере).
 set -euo pipefail
 
-API_BASE="${LOCATOR_API_BASE:-http://178.172.235.51:8080}"
+API_BASE="${LOCATOR_API_BASE:-http://87.232.65.52:8080}"
 ADMIN_KEY="${LOCATOR_ADMIN_API_KEY:?set LOCATOR_ADMIN_API_KEY}"
 VERSION_NAME="${1:?version_name}"
 VERSION_CODE="${2:?version_code}"
