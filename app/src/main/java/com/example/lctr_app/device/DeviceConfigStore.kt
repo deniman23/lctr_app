@@ -143,7 +143,13 @@ class DeviceConfigStore(context: Context) {
         get() = prefs.getString(KEY_APP_UPDATE_CMD_ID, null)
         set(value) = prefs.edit { putString(KEY_APP_UPDATE_CMD_ID, value) }
 
-    fun endpoints(): LocatorEndpoints = LocatorEndpoints.fromBuildConfig(apiBaseUrl)
+    fun endpoints(): LocatorEndpoints = LocatorEndpoints.fromBuildConfig(validApiBaseOverride())
+
+    private fun validApiBaseOverride(): String? {
+        val saved = apiBaseUrl?.trimEnd('/')?.takeIf { it.isNotBlank() } ?: return null
+        val obsoleteHosts = listOf("localhost", "127.0.0.1", "178.172.235.51")
+        return saved.takeUnless { base -> obsoleteHosts.any { base.contains(it) } }
+    }
 
     fun recordLocationPost(status: Int, source: String, accuracy: Float?, error: String? = null) {
         lastPostAtMs = System.currentTimeMillis()

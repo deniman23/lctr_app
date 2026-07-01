@@ -2,7 +2,7 @@
 # Собирает release APK и копирует на сервер (настройте SERVER и REMOTE_DIR).
 set -euo pipefail
 
-SERVER="${LOCATOR_SERVER:-user@178.172.235.51}"
+SERVER="${LOCATOR_SERVER:-user@87.232.65.52}"
 REMOTE_DIR="${LOCATOR_RELEASES_DIR:-/var/www/locator/static/releases}"
 VERSION_NAME="${1:-1.1.0}"
 VERSION_CODE="${2:-2}"

@@ -85,6 +85,7 @@ class LocationService : Service() {
 
         applyTrackingState()
         startRequestPolling()
+        fetchAndSendLocationNow(null)
 
         if (intent?.getBooleanExtra(EXTRA_FORCE_HEALTH_REPORT, false) == true) {
             reportSender.sendFullReport(isServiceRunning())
@@ -292,6 +293,7 @@ class LocationService : Service() {
         val url = config.endpoints().locationPost
         http.postJson(url, JSONObject(payload)) { status, _, error ->
             val ok = status in 200..299
+            Log.i(TAG, "location post HTTP $status source=$source url=$url")
             if (ok) {
                 config.recordLocationPost(status, source, accuracy)
             } else {
