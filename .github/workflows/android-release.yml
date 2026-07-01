@@ -2,7 +2,7 @@
 #
 # Secrets: ANDROID_KEYSTORE_*, DEPLOY_SSH_HOST, DEPLOY_SSH_USER, DEPLOY_SSH_KEY,
 #          DEPLOY_REMOTE_DIR (каталог для nginx /static/releases)
-# Variable: LOCATOR_PUBLIC_BASE_URL (default http://178.172.235.51:8080)
+# Variable: LOCATOR_PUBLIC_BASE_URL (default http://87.232.65.52:8080)
 #
 # manifest.json пишется в DEPLOY_REMOTE_DIR и в /root/locator_go/backend/static/releases
 
@@ -58,7 +58,7 @@ jobs:
       - name: Prepare release artifacts (APK + manifest.json)
         id: artifacts
         env:
-          LOCATOR_PUBLIC_BASE_URL: ${{ vars.LOCATOR_PUBLIC_BASE_URL || 'http://178.172.235.51:8080' }}
+          LOCATOR_PUBLIC_BASE_URL: ${{ vars.LOCATOR_PUBLIC_BASE_URL || 'http://87.232.65.52:8080' }}
         run: |
           APK=$(find app/build/outputs/apk/release -name "*.apk" ! -name "*-unsigned.apk" | head -1)
           if [[ -z "$APK" ]]; then
@@ -110,7 +110,7 @@ jobs:
 
       - name: Verify manifest on public URL
         env:
-          LOCATOR_PUBLIC_BASE_URL: ${{ vars.LOCATOR_PUBLIC_BASE_URL || 'http://178.172.235.51:8080' }}
+          LOCATOR_PUBLIC_BASE_URL: ${{ vars.LOCATOR_PUBLIC_BASE_URL || 'http://87.232.65.52:8080' }}
         run: |
           URL="${LOCATOR_PUBLIC_BASE_URL%/}/static/releases/manifest.json"
           BODY=$(curl -fsS "$URL")
@@ -129,7 +129,7 @@ jobs:
 
       - name: Register release metadata on API
         env:
-          LOCATOR_API_BASE: http://178.172.235.51:8080
+          LOCATOR_API_BASE: http://87.232.65.52:8080
           LOCATOR_ADMIN_API_KEY: ${{ secrets.LOCATOR_ADMIN_API_KEY }}
         run: |
           if [[ -z "${LOCATOR_ADMIN_API_KEY:-}" ]]; then

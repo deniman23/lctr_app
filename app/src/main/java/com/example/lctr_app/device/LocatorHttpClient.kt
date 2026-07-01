@@ -79,13 +79,14 @@ class LocatorHttpClient(
     }
   }
 
-  fun ackCommand(commandId: String, status: String = "completed") {
+  fun ackCommand(commandId: String, status: String = "success", message: String? = null) {
     val body = JSONObject().apply {
       put("command_id", commandId)
       put("status", status)
+      if (!message.isNullOrBlank()) put("message", message)
     }
-    postJson(config.endpoints().deviceCommandAck, body) { status, _, _ ->
-      Log.d(TAG, "command ack $commandId -> HTTP $status")
+    postJson(config.endpoints().deviceCommandAck, body) { httpStatus, _, _ ->
+      Log.d(TAG, "command ack $commandId ($status) -> HTTP $httpStatus")
     }
   }
 

@@ -16,7 +16,7 @@ class DeviceReportSender(
     http.checkUsersMe {
       val report = DeviceDiagnostics.buildReport(context, config, serviceRunning, commandId)
       http.sendDeviceReport(report) { ok ->
-        if (ok && commandId != null) http.ackCommand(commandId)
+        // app_update ack'ается отдельно (accepted → downloaded → success); не шлём completed здесь
         onDone?.invoke(ok)
       }
     }

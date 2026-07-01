@@ -44,11 +44,11 @@ class AppUpdateDownloadService : Service() {
                 if (ok) {
                     manager.onDownloadFinished(commandId, http)
                 } else {
-                    manager.onDownloadFailed(commandId, config.appUpdateLastError ?: "download_failed")
+                    manager.onDownloadFailed(commandId, config.appUpdateLastError ?: "download_failed", http)
                 }
             } catch (e: Exception) {
                 Log.e(TAG, "download service error", e)
-                manager.onDownloadFailed(commandId, e.message ?: "unknown")
+                manager.onDownloadFailed(commandId, e.message ?: "unknown", http)
             } finally {
                 stopForeground(STOP_FOREGROUND_REMOVE)
                 stopSelf()
