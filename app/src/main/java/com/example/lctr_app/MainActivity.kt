@@ -23,6 +23,7 @@ import com.example.lctr_app.BuildConfig
 import com.example.lctr_app.corporate.CorporateSetupHelper
 import com.example.lctr_app.corporate.CorporateSetupStatus
 import com.example.lctr_app.corporate.DeviceOwnerManager
+import com.example.lctr_app.corporate.LocationServiceStarter
 import com.example.lctr_app.device.DeviceConfigStore
 import com.example.lctr_app.ui.theme.Lctr_appTheme
 import org.json.JSONObject
@@ -144,6 +145,12 @@ class MainActivity : ComponentActivity() {
         super.onResume()
         isServiceRunning.value = deviceConfig.serviceActive ||
             com.example.lctr_app.corporate.ServiceRunningHelper.isLocationServiceRunning(this)
+        if (deviceConfig.userId != -1 && deviceConfig.apiKey.isNotEmpty() &&
+            (deviceConfig.serviceActive || DeviceOwnerManager.isDeviceOwner(this))
+        ) {
+            LocationServiceStarter.startIfConfigured(this, forceHealthReport = false)
+            isServiceRunning.value = true
+        }
         refreshUi()
     }
 

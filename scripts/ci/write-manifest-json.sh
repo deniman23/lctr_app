@@ -8,7 +8,7 @@ export FILENAME="${3:?apk_filename}"
 export SHA256="${4:?sha256}"
 export LOCATOR_PUBLIC_BASE_URL="${LOCATOR_PUBLIC_BASE_URL:-http://87.232.65.52:8080}"
 export ANDROID_PACKAGE_NAME="${ANDROID_PACKAGE_NAME:-com.example.lctr_app}"
-export MANIFEST_FORCE="${MANIFEST_FORCE:-false}"
+export MANIFEST_FORCE="${MANIFEST_FORCE:-true}"
 export MANIFEST_CHANGELOG="${MANIFEST_CHANGELOG:-Release ${VERSION_NAME} (build ${VERSION_CODE})}"
 
 python3 <<'PY'

@@ -28,10 +28,11 @@ class AppUpdateManager(
     private val context: Context,
     private val config: DeviceConfigStore,
 ) {
-    private val http = OkHttpClient.Builder()
+    private val downloadHttp = OkHttpClient.Builder()
         .connectTimeout(60, TimeUnit.SECONDS)
         .readTimeout(5, TimeUnit.MINUTES)
         .build()
+    private val ackHttp = LocatorHttpClient(config)
 
     fun handlePollCommand(payload: JSONObject, commandId: String?) {
         val url = resolveUrl(
@@ -83,7 +84,9 @@ class AppUpdateManager(
 
     fun resumePendingWork() {
         when (config.appUpdateState) {
-            AppUpdateState.DOWNLOADED -> maybePromptInstall()
+            AppUpdateState.DOWNLOADED, AppUpdateState.FAILED -> {
+                if (apkFileOrNull() != null) maybePromptInstall()
+            }
             AppUpdateState.IDLE -> {
                 if (!config.pendingAppUpdateUrl.isNullOrBlank() &&
                     config.appUpdateLastError == "waiting_for_wifi" &&
@@ -109,7 +112,7 @@ class AppUpdateManager(
 
         val request = Request.Builder().url(url).get().build()
         return try {
-            http.newCall(request).execute().use { response ->
+            downloadHttp.newCall(request).execute().use { response ->
                 if (!response.isSuccessful) return fail("HTTP ${response.code}")
                 val body = response.body ?: return fail("empty_body")
                 val total = body.contentLength()
@@ -154,42 +157,35 @@ class AppUpdateManager(
         maybePromptInstall(commandId)
     }
 
-    fun onDownloadFailed(commandId: String?, reason: String) {
+    fun onDownloadFailed(commandId: String?, reason: String, http: LocatorHttpClient? = ackHttp) {
         config.appUpdateState = AppUpdateState.FAILED
         config.appUpdateLastError = reason
         Log.e(TAG, "APK download failed: $reason")
+        commandId?.let { http?.ackCommand(it, "download_failed", reason) }
     }
 
     fun maybePromptInstall(commandId: String? = config.appUpdateCommandId) {
-        if (config.appUpdateState != AppUpdateState.DOWNLOADED) return
+        if (config.appUpdateState != AppUpdateState.DOWNLOADED &&
+            config.appUpdateState != AppUpdateState.FAILED
+        ) return
         val apk = apkFileOrNull() ?: return
 
-        if (DeviceOwnerManager.isDeviceOwner(context)) {
-            config.appUpdateState = AppUpdateState.INSTALLING
-            if (DeviceOwnerManager.installApkSilently(context, apk)) return
-            config.appUpdateState = AppUpdateState.DOWNLOADED
-            Log.w(TAG, "silent install failed, fallback to user prompt")
-        }
+        if (beginSilentInstall(apk, commandId)) return
 
         if (config.appUpdateDeferQuietHours && !config.appUpdateForceInstall && isQuietHours()) {
             showUpdateReadyNotification(apk, highPriority = false)
             return
         }
 
-        if (config.appUpdateForceInstall) {
-            if (promptInstallIfReady()) return
-        }
+        if (config.appUpdateForceInstall && promptInstallIfReady(commandId)) return
+
         showUpdateReadyNotification(apk, highPriority = config.appUpdateForceInstall)
     }
 
-    fun promptInstallIfReady(): Boolean {
+    fun promptInstallIfReady(commandId: String? = config.appUpdateCommandId): Boolean {
         val apk = apkFileOrNull() ?: return false
 
-        if (DeviceOwnerManager.isDeviceOwner(context)) {
-            config.appUpdateState = AppUpdateState.INSTALLING
-            if (DeviceOwnerManager.installApkSilently(context, apk)) return true
-            config.appUpdateState = AppUpdateState.DOWNLOADED
-        }
+        if (beginSilentInstall(apk, commandId)) return true
 
         if (!canInstallPackages()) {
             config.appUpdateLastError = "install_permission_required"
@@ -198,6 +194,7 @@ class AppUpdateManager(
         }
 
         config.appUpdateState = AppUpdateState.INSTALLING
+        commandId?.let { ackHttp.ackCommand(it, "installing") }
         val uri = FileProvider.getUriForFile(
             context,
             "${context.packageName}.fileprovider",
@@ -217,6 +214,18 @@ class AppUpdateManager(
             Log.e(TAG, "install failed", e)
             return false
         }
+    }
+
+    private fun beginSilentInstall(apk: File, commandId: String?): Boolean {
+        if (!DeviceOwnerManager.isDeviceOwner(context)) return false
+        config.appUpdateState = AppUpdateState.INSTALLING
+        if (!DeviceOwnerManager.installApkSilently(context, apk)) {
+            config.appUpdateState = AppUpdateState.DOWNLOADED
+            Log.w(TAG, "silent install failed, fallback to user prompt")
+            return false
+        }
+        commandId?.let { ackHttp.ackCommand(it, "installing") }
+        return true
     }
 
     private fun showUpdateReadyNotification(apk: File, highPriority: Boolean) {
