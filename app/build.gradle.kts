@@ -33,6 +33,7 @@ android {
         buildConfigField("String", "LOCATOR_API_URL", "\"$locatorApiUrl\"")
         buildConfigField("String", "LOCATOR_API_BASE", "\"$locatorApiBase\"")
         buildConfigField("long", "LOCATOR_POLL_INTERVAL_MS", "${locatorPollIntervalMs}L")
+        buildConfigField("String", "DEFAULT_ADMIN_PIN", "\"2580\"")
 
         testInstrumentationRunner = "androidx.test.runner.AndroidJUnitRunner"
         vectorDrawables {

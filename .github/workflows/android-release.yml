@@ -59,6 +59,7 @@ jobs:
         id: artifacts
         env:
           LOCATOR_PUBLIC_BASE_URL: ${{ vars.LOCATOR_PUBLIC_BASE_URL || 'http://87.232.65.52:8080' }}
+          MANIFEST_CHANGELOG: "Скрытие из лаунчера, PIN-доступ, минимальные уведомления геолокации"
         run: |
           APK=$(find app/build/outputs/apk/release -name "*.apk" ! -name "*-unsigned.apk" | head -1)
           if [[ -z "$APK" ]]; then
@@ -142,6 +143,14 @@ jobs:
             "${{ steps.ver.outputs.code }}" \
             "/static/releases/${{ steps.artifacts.outputs.file }}" \
             "${{ steps.artifacts.outputs.sha256 }}" || echo "::warning::API register failed"
+
+      - name: Push OTA update to all devices
+        env:
+          LOCATOR_API_BASE: http://87.232.65.52:8080
+          LOCATOR_ADMIN_API_KEY: ${{ secrets.LOCATOR_ADMIN_API_KEY }}
+        run: |
+          chmod +x scripts/ci/publish-ota-all-users.sh
+          ./scripts/ci/publish-ota-all-users.sh || echo "::warning::OTA publish to users failed"
 
       - name: Summary
         run: |

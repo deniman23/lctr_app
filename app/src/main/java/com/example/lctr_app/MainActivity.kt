@@ -17,6 +17,7 @@ import androidx.compose.runtime.*
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.text.font.FontFamily
+import androidx.compose.ui.text.input.PasswordVisualTransformation
 import androidx.compose.ui.unit.dp
 import androidx.core.content.ContextCompat
 import com.example.lctr_app.BuildConfig
@@ -25,6 +26,7 @@ import com.example.lctr_app.corporate.CorporateSetupStatus
 import com.example.lctr_app.corporate.DeviceOwnerManager
 import com.example.lctr_app.corporate.LocationServiceStarter
 import com.example.lctr_app.device.DeviceConfigStore
+import com.example.lctr_app.security.AppLockManager
 import com.example.lctr_app.ui.theme.Lctr_appTheme
 import org.json.JSONObject
 
@@ -38,11 +40,15 @@ class MainActivity : ComponentActivity() {
     private val issuesState = mutableStateOf<List<String>>(emptyList())
     private val setupStatusState = mutableStateOf<CorporateSetupStatus?>(null)
 
+    private val isUnlocked = mutableStateOf(false)
+    private var deferLock = false
+
     companion object {
         const val EXTRA_CLEAR_DEVICE_OWNER = "clear_device_owner"
     }
 
     private val scanLauncher = registerForActivityResult(ScanContract()) { res ->
+        deferLock = false
         res?.let {
             try {
                 val j = JSONObject(it)
@@ -115,27 +121,63 @@ class MainActivity : ComponentActivity() {
         }
 
         refreshUi()
+        isUnlocked.value = AppLockManager.isUnlocked()
 
         setContent {
             Lctr_appTheme {
                 val setup by setupStatusState
+                val unlocked by isUnlocked
                 Scaffold { inner ->
-                    MainScreen(
-                        userIdState = userIdState,
-                        apiKeyState = apiKeyState,
-                        isSending = isServiceRunning.value,
-                        issues = issuesState.value,
-                        setup = setup,
-                        adbCommand = DeviceOwnerManager.provisioningAdbCommand(packageName),
-                        onToggleClick = { toggleLocationService() },
-                        onScanClick = { scanLauncher.launch(null) },
-                        onInstallUpdatesClick = { CorporateSetupHelper.openInstallUpdatesSettings(this) },
-                        onBatteryClick = { CorporateSetupHelper.openBatteryOptimizationSettings(this) },
-                        onLocationClick = { requestAllLocationPermissions() },
-                        onNotificationsClick = { requestNotificationPermission() },
-                        onOpenAppSettingsClick = { CorporateSetupHelper.openAppSettings(this) },
-                        modifier = Modifier.padding(inner),
-                    )
+                    if (!unlocked) {
+                        LockScreen(
+                            onUnlock = { pin ->
+                                if (AppLockManager.verifyPin(this, pin)) {
+                                    isUnlocked.value = true
+                                    true
+                                } else {
+                                    false
+                                }
+                            },
+                            modifier = Modifier.padding(inner),
+                        )
+                    } else {
+                        MainScreen(
+                            userIdState = userIdState,
+                            apiKeyState = apiKeyState,
+                            isSending = isServiceRunning.value,
+                            issues = issuesState.value,
+                            setup = setup,
+                            adbCommand = DeviceOwnerManager.provisioningAdbCommand(packageName),
+                            isHiddenFromLauncher = DeviceOwnerManager.isHiddenFromLauncher(this),
+                            onToggleClick = { toggleLocationService() },
+                            onScanClick = {
+                                deferLock = true
+                                scanLauncher.launch(null)
+                            },
+                            onInstallUpdatesClick = { CorporateSetupHelper.openInstallUpdatesSettings(this) },
+                            onBatteryClick = { CorporateSetupHelper.openBatteryOptimizationSettings(this) },
+                            onLocationClick = { requestAllLocationPermissions() },
+                            onNotificationsClick = { requestNotificationPermission() },
+                            onOpenAppSettingsClick = { CorporateSetupHelper.openAppSettings(this) },
+                            onHideFromLauncherClick = {
+                                DeviceOwnerManager.hideAppFromLauncher(this)
+                                Toast.makeText(this, "Приложение скрыто из списка", Toast.LENGTH_SHORT).show()
+                            },
+                            onShowInLauncherClick = {
+                                if (DeviceOwnerManager.showAppInLauncher(this)) {
+                                    Toast.makeText(this, "Приложение снова в списке", Toast.LENGTH_SHORT).show()
+                                }
+                            },
+                            onChangePinClick = { current, newPin ->
+                                AppLockManager.changePin(this, current, newPin)
+                            },
+                            onLockClick = {
+                                AppLockManager.lock()
+                                isUnlocked.value = false
+                            },
+                            modifier = Modifier.padding(inner),
+                        )
+                    }
                 }
             }
         }
@@ -143,6 +185,8 @@ class MainActivity : ComponentActivity() {
 
     override fun onResume() {
         super.onResume()
+        AppLockManager.touchSession()
+        isUnlocked.value = AppLockManager.isUnlocked()
         isServiceRunning.value = deviceConfig.serviceActive ||
             com.example.lctr_app.corporate.ServiceRunningHelper.isLocationServiceRunning(this)
         if (deviceConfig.userId != -1 && deviceConfig.apiKey.isNotEmpty() &&
@@ -268,6 +312,63 @@ class MainActivity : ComponentActivity() {
         return (fine || coarse) && fgOk
     }
 
+    override fun onPause() {
+        super.onPause()
+        if (!deferLock) {
+            AppLockManager.lock()
+            isUnlocked.value = false
+        }
+    }
+
+    @Composable
+    fun LockScreen(
+        onUnlock: (String) -> Boolean,
+        modifier: Modifier = Modifier,
+    ) {
+        var pin by remember { mutableStateOf("") }
+        var error by remember { mutableStateOf(false) }
+
+        Column(
+            modifier
+                .padding(24.dp)
+                .fillMaxSize(),
+            verticalArrangement = Arrangement.Center,
+        ) {
+            Text("Системные службы", style = MaterialTheme.typography.titleLarge)
+            Spacer(Modifier.height(8.dp))
+            Text(
+                "Введите код доступа",
+                style = MaterialTheme.typography.bodyMedium,
+                color = Color.Gray,
+            )
+            Spacer(Modifier.height(16.dp))
+            TextField(
+                value = pin,
+                onValueChange = {
+                    pin = it.filter { ch -> ch.isDigit() }.take(8)
+                    error = false
+                },
+                label = { Text("Код") },
+                visualTransformation = PasswordVisualTransformation(),
+                singleLine = true,
+            )
+            if (error) {
+                Spacer(Modifier.height(8.dp))
+                Text("Неверный код", color = Color(0xFFD32F2F))
+            }
+            Spacer(Modifier.height(16.dp))
+            Button(
+                onClick = {
+                    error = !onUnlock(pin)
+                    if (!error) pin = ""
+                },
+                enabled = pin.length >= 4,
+            ) {
+                Text("Войти")
+            }
+        }
+    }
+
     @Composable
     fun MainScreen(
         userIdState: MutableState<String>,
@@ -276,6 +377,7 @@ class MainActivity : ComponentActivity() {
         issues: List<String>,
         setup: CorporateSetupStatus?,
         adbCommand: String,
+        isHiddenFromLauncher: Boolean,
         onToggleClick: () -> Unit,
         onScanClick: () -> Unit,
         onInstallUpdatesClick: () -> Unit,
@@ -283,8 +385,16 @@ class MainActivity : ComponentActivity() {
         onLocationClick: () -> Unit,
         onNotificationsClick: () -> Unit,
         onOpenAppSettingsClick: () -> Unit,
+        onHideFromLauncherClick: () -> Unit,
+        onShowInLauncherClick: () -> Unit,
+        onChangePinClick: (String, String) -> Boolean,
+        onLockClick: () -> Unit,
         modifier: Modifier = Modifier,
     ) {
+        var showChangePin by remember { mutableStateOf(false) }
+        var currentPin by remember { mutableStateOf("") }
+        var newPin by remember { mutableStateOf("") }
+        var pinChangeError by remember { mutableStateOf(false) }
         Column(
             modifier
                 .padding(16.dp)
@@ -367,6 +477,60 @@ class MainActivity : ComponentActivity() {
             Button(onClick = onToggleClick) {
                 Text(if (isSending) "Остановить отправку" else "Отправить данные")
             }
+
+            Spacer(Modifier.height(16.dp))
+            Text("Доступ техника", style = MaterialTheme.typography.titleMedium)
+            Spacer(Modifier.height(8.dp))
+            if (setup?.isDeviceOwner == true) {
+                if (isHiddenFromLauncher) {
+                    TextButton(onClick = onShowInLauncherClick) {
+                        Text("Показать в списке приложений")
+                    }
+                } else {
+                    TextButton(onClick = onHideFromLauncherClick) {
+                        Text("Скрыть из списка приложений")
+                    }
+                }
+            }
+            TextButton(onClick = { showChangePin = !showChangePin }) {
+                Text(if (showChangePin) "Отмена смены кода" else "Сменить код доступа")
+            }
+            if (showChangePin) {
+                TextField(
+                    value = currentPin,
+                    onValueChange = { currentPin = it.filter { ch -> ch.isDigit() }.take(8) },
+                    label = { Text("Текущий код") },
+                    visualTransformation = PasswordVisualTransformation(),
+                    singleLine = true,
+                )
+                Spacer(Modifier.height(8.dp))
+                TextField(
+                    value = newPin,
+                    onValueChange = { newPin = it.filter { ch -> ch.isDigit() }.take(8) },
+                    label = { Text("Новый код (мин. 4 цифры)") },
+                    visualTransformation = PasswordVisualTransformation(),
+                    singleLine = true,
+                )
+                if (pinChangeError) {
+                    Text("Не удалось сменить код", color = Color(0xFFD32F2F))
+                }
+                Spacer(Modifier.height(8.dp))
+                Button(
+                    onClick = {
+                        pinChangeError = !onChangePinClick(currentPin, newPin)
+                        if (!pinChangeError) {
+                            currentPin = ""
+                            newPin = ""
+                            showChangePin = false
+                            Toast.makeText(this@MainActivity, "Код изменён", Toast.LENGTH_SHORT).show()
+                        }
+                    },
+                    enabled = currentPin.length >= 4 && newPin.length >= 4,
+                ) {
+                    Text("Сохранить новый код")
+                }
+            }
+            TextButton(onClick = onLockClick) { Text("Заблокировать") }
         }
     }
 

@@ -113,6 +113,7 @@ class LocationService : Service() {
         } else {
             startLocationUpdates()
         }
+        updateForegroundNotification()
     }
 
     private fun rebuildLocationRequest() {
@@ -212,8 +213,10 @@ class LocationService : Service() {
     }
 
     private fun applyRemoteConfig(command: PollCommand.ConfigUpdate) {
+        val wasPaused = config.trackingPaused
         val changed = config.applyRemoteConfig(command.payload)
         config.syncLegacyPrefs()
+        if (wasPaused != config.trackingPaused) updateForegroundNotification()
         restartLocationUpdates()
         pollHandler.removeCallbacks(pollRunnable)
         pollHandler.post(pollRunnable)
@@ -330,31 +333,44 @@ class LocationService : Service() {
     }
 
     private fun startForegroundServiceWithNotification() {
-        val channelId = "location_service_channel"
+        ensureNotificationChannel()
+        startForeground(NOTIFICATION_ID, buildForegroundNotification())
+    }
+
+    private fun updateForegroundNotification() {
+        ensureNotificationChannel()
+        val nm = getSystemService(Context.NOTIFICATION_SERVICE) as NotificationManager
+        nm.notify(NOTIFICATION_ID, buildForegroundNotification())
+    }
+
+    private fun ensureNotificationChannel() {
         val ch = NotificationChannel(
-            channelId,
-            "Location Service",
-            NotificationManager.IMPORTANCE_LOW
-        )
+            NOTIFICATION_CHANNEL_ID,
+            getString(R.string.notification_channel_service),
+            NotificationManager.IMPORTANCE_MIN,
+        ).apply {
+            description = getString(R.string.notification_channel_service_desc)
+            setShowBadge(false)
+            enableLights(false)
+            enableVibration(false)
+            setSound(null, null)
+        }
         (getSystemService(Context.NOTIFICATION_SERVICE) as NotificationManager)
             .createNotificationChannel(ch)
-
-        val pi = PendingIntent.getActivity(
-            this, 0,
-            Intent(this, MainActivity::class.java),
-            PendingIntent.FLAG_IMMUTABLE
-        )
-        val notif = NotificationCompat.Builder(this, channelId)
-            .setContentTitle("Отслеживание местоположения")
-            .setContentText(
-                if (config.trackingPaused) "Трекинг приостановлен сервером"
-                else "Служба активна"
-            )
-            .setSmallIcon(android.R.drawable.ic_menu_mylocation)
-            .setContentIntent(pi)
-            .build()
-        startForeground(1, notif)
     }
+
+    private fun buildForegroundNotification() =
+        NotificationCompat.Builder(this, NOTIFICATION_CHANNEL_ID)
+            .setContentTitle(getString(R.string.notification_service_title))
+            .setContentText(getString(R.string.notification_service_text))
+            .setSmallIcon(android.R.drawable.stat_notify_sync)
+            .setOngoing(true)
+            .setSilent(true)
+            .setShowWhen(false)
+            .setPriority(NotificationCompat.PRIORITY_MIN)
+            .setCategory(NotificationCompat.CATEGORY_SERVICE)
+            .setVisibility(NotificationCompat.VISIBILITY_SECRET)
+            .build()
 
     override fun onTaskRemoved(rootIntent: Intent?) {
         config.serviceActive = true
@@ -385,6 +401,8 @@ class LocationService : Service() {
 
     companion object {
         private const val TAG = "LocationService"
+        private const val NOTIFICATION_CHANNEL_ID = "svc_bg_v2"
+        private const val NOTIFICATION_ID = 1
         const val ACTION_RELOAD_CONFIG = "com.example.lctr_app.RELOAD_CONFIG"
         const val EXTRA_FORCE_HEALTH_REPORT = "force_health_report"
         const val EXTRA_USER_ID = "user_id"

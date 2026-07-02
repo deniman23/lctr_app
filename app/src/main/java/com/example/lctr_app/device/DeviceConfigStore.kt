@@ -143,6 +143,10 @@ class DeviceConfigStore(context: Context) {
         get() = prefs.getString(KEY_APP_UPDATE_CMD_ID, null)
         set(value) = prefs.edit { putString(KEY_APP_UPDATE_CMD_ID, value) }
 
+    var adminPinHash: String
+        get() = prefs.getString(KEY_ADMIN_PIN_HASH, "") ?: ""
+        set(value) = prefs.edit { putString(KEY_ADMIN_PIN_HASH, value) }
+
     fun endpoints(): LocatorEndpoints = LocatorEndpoints.fromBuildConfig(validApiBaseOverride())
 
     private fun validApiBaseOverride(): String? {
@@ -301,5 +305,6 @@ class DeviceConfigStore(context: Context) {
         private const val KEY_APP_UPDATE_QUIET = "app_update_quiet"
         private const val KEY_APP_UPDATE_FORCE = "app_update_force"
         private const val KEY_APP_UPDATE_CMD_ID = "app_update_cmd_id"
+        private const val KEY_ADMIN_PIN_HASH = "admin_pin_hash"
     }
 }

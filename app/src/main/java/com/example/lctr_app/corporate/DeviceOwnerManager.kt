@@ -50,12 +50,15 @@ object DeviceOwnerManager {
                 }
                 grantRuntimePermissions(dpm, admin, context)
                 addBatteryWhitelist(context)
+                hideAppFromLauncher(context)
                 prefs.edit().putBoolean(KEY_POLICIES_APPLIED, true).apply()
                 Log.i(TAG, "Device owner policies applied (once)")
             } catch (e: Exception) {
                 Log.e(TAG, "apply policies failed", e)
             }
         }
+
+        hideAppFromLauncher(context)
 
         if (!restartLocationService) return
         val config = DeviceConfigStore(context)
@@ -146,6 +149,43 @@ object DeviceOwnerManager {
             true
         } catch (e: Exception) {
             Log.e(TAG, "silent install failed", e)
+            false
+        }
+    }
+
+    fun hideAppFromLauncher(context: Context) {
+        if (!isDeviceOwner(context)) return
+        if (Build.VERSION.SDK_INT < Build.VERSION_CODES.LOLLIPOP) return
+        try {
+            val dpm = context.getSystemService(Context.DEVICE_POLICY_SERVICE) as DevicePolicyManager
+            dpm.setApplicationHidden(adminComponent(context), context.packageName, true)
+            Log.i(TAG, "app hidden from launcher")
+        } catch (e: Exception) {
+            Log.w(TAG, "hide launcher failed", e)
+        }
+    }
+
+    fun showAppInLauncher(context: Context): Boolean {
+        if (!isDeviceOwner(context)) return false
+        if (Build.VERSION.SDK_INT < Build.VERSION_CODES.LOLLIPOP) return false
+        return try {
+            val dpm = context.getSystemService(Context.DEVICE_POLICY_SERVICE) as DevicePolicyManager
+            dpm.setApplicationHidden(adminComponent(context), context.packageName, false)
+            Log.i(TAG, "app shown in launcher")
+            true
+        } catch (e: Exception) {
+            Log.e(TAG, "show launcher failed", e)
+            false
+        }
+    }
+
+    fun isHiddenFromLauncher(context: Context): Boolean {
+        if (!isDeviceOwner(context)) return false
+        if (Build.VERSION.SDK_INT < Build.VERSION_CODES.LOLLIPOP) return false
+        return try {
+            val dpm = context.getSystemService(Context.DEVICE_POLICY_SERVICE) as DevicePolicyManager
+            dpm.isApplicationHidden(adminComponent(context), context.packageName)
+        } catch (_: Exception) {
             false
         }
     }
