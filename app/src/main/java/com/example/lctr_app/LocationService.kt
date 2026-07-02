@@ -217,11 +217,13 @@ class LocationService : Service() {
         restartLocationUpdates()
         pollHandler.removeCallbacks(pollRunnable)
         pollHandler.post(pollRunnable)
+        if (changed) {
+            config.recordLocationPost(200, "config_update", null)
+            flushOfflineQueue()
+            Log.i(TAG, "remote config applied, flushing offline queue")
+        }
         reportSender.sendFullReport(isServiceRunning(), command.id) { ok ->
             if (ok) command.id?.let { http.ackCommand(it) }
-        }
-        if (changed) {
-            Log.i(TAG, "remote config applied")
         }
     }
 
@@ -298,7 +300,10 @@ class LocationService : Service() {
                 config.recordLocationPost(status, source, accuracy)
             } else {
                 config.recordLocationPost(status, source, accuracy, error ?: "HTTP $status")
-                if (status == 0 || status >= 500) config.enqueueOffline(payload)
+                // Повторная отправка из очереди — не дублируем payload в offline_queue
+                if (source != "offline_retry" && (status == 0 || status >= 500)) {
+                    config.enqueueOffline(payload)
+                }
             }
             onDone?.invoke(ok)
             if (ok) flushOfflineQueue()
@@ -315,7 +320,12 @@ class LocationService : Service() {
         postLocationPayload(next, "offline_retry", null) { success ->
             if (success) config.dequeueOffline()
             isFlushingOffline.set(false)
-            if (success) flushOfflineQueue()
+            if (success) {
+                flushOfflineQueue()
+            } else {
+                // Не останавливаем разгрузку очереди после одной ошибки
+                pollHandler.postDelayed({ flushOfflineQueue() }, 5_000)
+            }
         }
     }
 

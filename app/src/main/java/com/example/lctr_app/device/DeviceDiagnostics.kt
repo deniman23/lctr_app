@@ -123,10 +123,14 @@ object DeviceDiagnostics {
     }
 
     val postStatus = config.lastPostStatus
-    if (config.lastPostAtMs > 0 && postStatus != 200) {
+    val queueSize = config.pendingOfflineCount()
+    if (config.lastPostAtMs > 0 && postStatus != 200 && queueSize == 0) {
       issues.add("post_failed")
     }
     if (postStatus == 401) issues.add("last_post_401")
+    if (queueSize > 0 && config.lastPostSource == "offline_retry" && postStatus != 200) {
+      issues.add("offline_sync_pending")
+    }
 
     val postAgeMs = System.currentTimeMillis() - config.lastPostAtMs
     val maxPostAgeMs = config.locationIntervalSeconds * 2 * 1000
