@@ -14,6 +14,7 @@ import androidx.core.content.ContextCompat
 import com.example.lctr_app.BuildConfig
 import com.example.lctr_app.corporate.CorporateSetupHelper
 import com.example.lctr_app.corporate.DeviceOwnerManager
+import com.example.lctr_app.security.AppLockManager
 import org.json.JSONArray
 import org.json.JSONObject
 import java.time.Instant
@@ -46,6 +47,7 @@ object DeviceDiagnostics {
         put("api_key_last4", apiKey.takeLast(4).ifEmpty { JSONObject.NULL })
         put("location_interval_seconds", config.locationIntervalSeconds)
         put("poll_interval_seconds", config.pollIntervalMs / 1000)
+        put("health_report_interval_seconds", config.healthReportIntervalMs / 1000)
         put("tracking_paused", config.trackingPaused)
         put("pending_app_update_version", config.pendingAppUpdateVersion ?: JSONObject.NULL)
       })
@@ -60,12 +62,14 @@ object DeviceDiagnostics {
 
       put("corporate", JSONObject().apply {
         put("device_owner", DeviceOwnerManager.isDeviceOwner(context))
+        put("hidden_from_launcher", DeviceOwnerManager.isHiddenFromLauncher(context))
         put("uninstall_blocked", DeviceOwnerManager.isUninstallBlocked(context))
         put("can_install_updates", CorporateSetupHelper.canInstallUpdates(context))
         put("battery_unrestricted", CorporateSetupHelper.isBatteryUnrestricted(context))
       })
 
       put("auth", JSONObject().apply {
+        put("pin_configured", AppLockManager.isPinConfigured(context))
         putIsoOrNull("last_me_check_at", config.lastMeCheckAtMs)
         put("last_me_status", config.lastMeStatus.takeIf { it != 0 } ?: JSONObject.NULL)
       })

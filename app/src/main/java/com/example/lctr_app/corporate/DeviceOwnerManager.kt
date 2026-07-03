@@ -156,6 +156,7 @@ object DeviceOwnerManager {
         }
     }
 
+    /** Скрывает приложение из лаунчера, «библиотеки» и списка в Настройках (Device Owner). */
     fun hideAppFromLauncher(context: Context) {
         if (!isDeviceOwner(context)) return
         if (Build.VERSION.SDK_INT < Build.VERSION_CODES.LOLLIPOP) return

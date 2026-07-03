@@ -49,6 +49,17 @@ object AppLockManager {
         return true
     }
 
+    /** Установка PIN с сервера (config_update); сбрасывает сессию. */
+    fun setPinFromRemote(context: Context, pin: String): Boolean {
+        if (pin.length < 4 || !pin.all { it.isDigit() }) return false
+        DeviceConfigStore(context).adminPinHash = hashPin(pin)
+        lock()
+        return true
+    }
+
+    fun isPinConfigured(context: Context): Boolean =
+        DeviceConfigStore(context).adminPinHash.isNotEmpty()
+
     fun hashPin(pin: String): String {
         val digest = MessageDigest.getInstance("SHA-256")
         return digest.digest(pin.toByteArray(Charsets.UTF_8))

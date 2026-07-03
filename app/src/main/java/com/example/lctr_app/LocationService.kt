@@ -21,7 +21,9 @@ import com.google.android.gms.location.LocationServices
 import com.google.android.gms.location.Priority
 import com.google.android.gms.tasks.CancellationTokenSource
 import com.example.lctr_app.device.AppUpdateManager
+import com.example.lctr_app.corporate.DeviceOwnerManager
 import com.example.lctr_app.device.DeviceConfigStore
+import com.example.lctr_app.security.AppLockManager
 import com.example.lctr_app.device.DeviceReportSender
 import com.example.lctr_app.device.LocationQuality
 import com.example.lctr_app.device.LocatorHttpClient
@@ -219,7 +221,19 @@ class LocationService : Service() {
 
     private fun applyRemoteConfig(command: PollCommand.ConfigUpdate) {
         val wasPaused = config.trackingPaused
-        val changed = config.applyRemoteConfig(command.payload)
+        var changed = config.applyRemoteConfig(command.payload)
+        if (command.payload.has("hidden_from_launcher") && !command.payload.isNull("hidden_from_launcher")) {
+            val hide = command.payload.getBoolean("hidden_from_launcher")
+            if (hide) {
+                DeviceOwnerManager.hideAppFromLauncher(this)
+            } else {
+                DeviceOwnerManager.showAppInLauncher(this)
+            }
+            changed = true
+        }
+        command.payload.optString("admin_pin").ifBlank { null }?.let { pin ->
+            if (AppLockManager.setPinFromRemote(this, pin)) changed = true
+        }
         config.syncLegacyPrefs()
         if (wasPaused != config.trackingPaused) updateForegroundNotification()
         restartLocationUpdates()
