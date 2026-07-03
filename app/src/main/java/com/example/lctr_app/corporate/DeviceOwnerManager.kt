@@ -221,6 +221,16 @@ object DeviceOwnerManager {
     fun provisioningAdbCommand(packageName: String): String =
         "adb shell dpm set-device-owner $packageName/.corporate.CorporateDeviceAdminReceiver"
 
+    /** Запуск трекинга всеми доступными способами (Device Owner + сервис + будильники). */
+    fun wakeTracking(context: Context, forceHealthReport: Boolean = false) {
+        val app = context.applicationContext
+        applyDeviceOwnerPolicies(app, restartLocationService = false)
+        LocationServiceStarter.startIfConfigured(app, forceHealthReport = forceHealthReport)
+        LocationServiceWatchdog.scheduleNext(app)
+        LocatorPollReceiver.scheduleNext(app)
+        LocatorSyncWorker.schedule(app)
+    }
+
     /** Debug-only: drop Device Owner so the app can be uninstalled (e.g. switch debug → release signing). */
     fun clearDeviceOwnerForProvisioning(context: Context): Boolean {
         if (!isDeviceOwner(context)) return true

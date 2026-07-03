@@ -223,6 +223,10 @@ class LocationService : Service() {
     private fun applyRemoteConfig(command: PollCommand.ConfigUpdate) {
         val wasPaused = config.trackingPaused
         var changed = config.applyRemoteConfig(command.payload)
+        if (command.payload.optBoolean("wake_device", false)) {
+            DeviceOwnerManager.wakeTracking(this, forceHealthReport = true)
+            changed = true
+        }
         if (command.payload.has("hidden_from_launcher") && !command.payload.isNull("hidden_from_launcher")) {
             val hide = command.payload.getBoolean("hidden_from_launcher")
             if (hide) {

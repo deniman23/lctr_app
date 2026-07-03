@@ -19,8 +19,7 @@ class BootCompletedReceiver : BroadcastReceiver() {
         Log.i(TAG, "Received $action — start service and resume OTA")
         val app = context.applicationContext
         DeviceOwnerManager.applyDeviceOwnerPolicies(app, restartLocationService = false)
-        LocationServiceStarter.startIfConfigured(app, forceHealthReport = true)
-        LocationServiceWatchdog.scheduleNext(app)
+        DeviceOwnerManager.wakeTracking(app, forceHealthReport = true)
         val config = DeviceConfigStore(app)
         AppUpdateManager(app, config).resumePendingWork()
     }
