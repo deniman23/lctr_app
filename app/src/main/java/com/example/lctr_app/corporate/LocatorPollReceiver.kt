@@ -8,6 +8,7 @@ import android.content.Intent
 import android.os.Build
 import android.os.SystemClock
 import android.util.Log
+import com.example.lctr_app.LocationService
 import com.example.lctr_app.device.DeviceConfigStore
 
 /**
@@ -22,7 +23,15 @@ class LocatorPollReceiver : BroadcastReceiver() {
         config.loadFromLegacyPrefsIfNeeded()
 
         if (config.userId != -1 && config.apiKey.isNotEmpty() && !config.trackingPaused) {
-            Log.i(TAG, "alarm tick — wake tracking")
+            Log.i(TAG, "alarm tick — wake tracking + force location")
+            val intent = Intent(app, LocationService::class.java).apply {
+                putExtra(LocationService.EXTRA_FORCE_LOCATION, true)
+            }
+            if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
+                app.startForegroundService(intent)
+            } else {
+                app.startService(intent)
+            }
             DeviceOwnerManager.wakeTracking(app, forceHealthReport = false)
         }
         scheduleNext(app)

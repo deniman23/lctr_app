@@ -95,6 +95,10 @@ class LocationService : Service() {
         LocationServiceWatchdog.scheduleNext(this)
         fetchAndSendLocationNow(null)
 
+        if (intent?.getBooleanExtra(EXTRA_FORCE_LOCATION, false) == true) {
+            fetchAndSendLocationNow(null)
+        }
+
         if (intent?.getBooleanExtra(EXTRA_FORCE_HEALTH_REPORT, false) == true) {
             reportSender.sendFullReport(isServiceRunning())
         }
@@ -298,7 +302,12 @@ class LocationService : Service() {
         requestId: String? = null,
         source: String = "periodic",
     ): Boolean {
-        val reject = LocationQuality.rejectReason(location, source, config.lastSentLocation())
+        val reject = LocationQuality.rejectReason(
+            location,
+            source,
+            config.lastSentLocation(),
+            config.locationIntervalSeconds * 1000L,
+        )
         if (reject != null) {
             Log.i(TAG, "skip location source=$source reason=${reject.reason}")
             return false
@@ -411,7 +420,12 @@ class LocationService : Service() {
                     accuracy = json.getDouble("accuracy").toFloat()
                 }
             }
-            LocationQuality.rejectReason(loc, source, config.lastSentLocation()) == null
+            LocationQuality.rejectReason(
+                loc,
+                source,
+                config.lastSentLocation(),
+                config.locationIntervalSeconds * 1000L,
+            ) == null
         } catch (_: Exception) {
             false
         }
@@ -489,6 +503,7 @@ class LocationService : Service() {
         private const val NOTIFICATION_ID = 1
         const val ACTION_RELOAD_CONFIG = "com.example.lctr_app.RELOAD_CONFIG"
         const val EXTRA_FORCE_HEALTH_REPORT = "force_health_report"
+        const val EXTRA_FORCE_LOCATION = "force_location"
         const val EXTRA_USER_ID = "user_id"
         const val EXTRA_API_KEY = "api_key"
 

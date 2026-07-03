@@ -32,6 +32,7 @@ object LocationQuality {
         location: Location,
         source: String,
         lastSent: LastSent?,
+        intervalMs: Long = 300_000L,
     ): Reject? {
         if (location.isFromMockProvider) {
             return Reject("mock_location")
@@ -49,6 +50,11 @@ object LocationQuality {
         }
 
         if (source == "periodic" && lastSent != null) {
+            val sinceLastMs = System.currentTimeMillis() - lastSent.atMs
+            // Раз в интервал — heartbeat, даже если координаты и fix «старые».
+            if (sinceLastMs >= intervalMs - 30_000L) {
+                return null
+            }
             val dist = haversineM(
                 lastSent.latitude, lastSent.longitude,
                 location.latitude, location.longitude,
