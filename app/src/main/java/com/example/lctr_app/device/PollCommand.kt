@@ -11,7 +11,7 @@ sealed class PollCommand {
     val legacyRequestId: String? = null,
   ) : PollCommand() {
     override val type = TYPE
-    fun effectiveRequestId(): String? = id ?: legacyRequestId
+    fun effectiveRequestId(): String? = legacyRequestId ?: id
 
     companion object {
       const val TYPE = "location_request"
@@ -63,7 +63,10 @@ sealed class PollCommand {
         val id = command.optString("id", "").ifBlank { null }
         val payload = command.optJSONObject("payload") ?: JSONObject()
         return when (type) {
-          LocationRequest.TYPE -> LocationRequest(id)
+          LocationRequest.TYPE -> LocationRequest(
+            id = id,
+            legacyRequestId = payload.optString("request_id", "").ifBlank { null },
+          )
           HealthCheck.TYPE -> HealthCheck(id)
           ConfigUpdate.TYPE -> ConfigUpdate(id, payload)
           AppUpdate.TYPE -> AppUpdate(id, payload)
