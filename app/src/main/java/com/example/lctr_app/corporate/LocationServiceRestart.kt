@@ -7,6 +7,7 @@ import android.content.Intent
 import android.os.Build
 import android.os.SystemClock
 import com.example.lctr_app.LocationService
+import com.example.lctr_app.device.DeviceConfigStore
 
 /** Перезапуск LocationService после убийства процесса системой. */
 object LocationServiceRestart {
