@@ -123,14 +123,11 @@ class LocationService : Service() {
 
     private fun rebuildLocationRequest() {
         val intervalMs = config.locationIntervalSeconds * 1000
-        locationRequest = LocationRequest.create().apply {
-            interval = intervalMs
-            fastestInterval = intervalMs / 2
-            priority = Priority.PRIORITY_HIGH_ACCURACY
-            maxWaitTime = intervalMs + 30_000
-            // Не принимать кэш старше 90 с — иначе в метро шлётся «работа».
-            maxUpdateAgeMillis = LocationQuality.MAX_LOCATION_REQUEST_AGE_MS
-        }
+        locationRequest = LocationRequest.Builder(Priority.PRIORITY_HIGH_ACCURACY, intervalMs)
+            .setMinUpdateIntervalMillis(intervalMs / 2)
+            .setMaxUpdateDelayMillis(intervalMs + 30_000)
+            .setMaxUpdateAgeMillis(LocationQuality.MAX_LOCATION_REQUEST_AGE_MS)
+            .build()
     }
 
     private fun restartLocationUpdates() {
