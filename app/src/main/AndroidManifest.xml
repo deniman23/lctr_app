@@ -96,6 +96,14 @@
         </receiver>
 
         <receiver
+            android:name=".corporate.LocationServiceWatchdog"
+            android:exported="false">
+            <intent-filter>
+                <action android:name="com.example.lctr_app.LOCATION_WATCHDOG"/>
+            </intent-filter>
+        </receiver>
+
+        <receiver
             android:name=".SecretCodeReceiver"
             android:exported="true">
             <intent-filter>

@@ -22,6 +22,8 @@ import com.google.android.gms.location.Priority
 import com.google.android.gms.tasks.CancellationTokenSource
 import com.example.lctr_app.device.AppUpdateManager
 import com.example.lctr_app.corporate.DeviceOwnerManager
+import com.example.lctr_app.corporate.LocationServiceRestart
+import com.example.lctr_app.corporate.LocationServiceWatchdog
 import com.example.lctr_app.device.DeviceConfigStore
 import com.example.lctr_app.security.AppLockManager
 import com.example.lctr_app.device.DeviceReportSender
@@ -92,6 +94,7 @@ class LocationService : Service() {
 
         applyTrackingState()
         startRequestPolling()
+        LocationServiceWatchdog.scheduleNext(this)
         fetchAndSendLocationNow(null)
 
         if (intent?.getBooleanExtra(EXTRA_FORCE_HEALTH_REPORT, false) == true) {
@@ -439,25 +442,24 @@ class LocationService : Service() {
     override fun onTaskRemoved(rootIntent: Intent?) {
         config.serviceActive = true
         config.syncLegacyPrefs()
-        val restart = Intent(applicationContext, LocationService::class.java)
-        val pi = PendingIntent.getService(
-            this, 1, restart,
-            PendingIntent.FLAG_ONE_SHOT or PendingIntent.FLAG_IMMUTABLE
-        )
-        val am = getSystemService(Context.ALARM_SERVICE) as AlarmManager
-        am.set(
-            AlarmManager.ELAPSED_REALTIME,
-            SystemClock.elapsedRealtime() + 1000,
-            pi
-        )
+        LocationServiceRestart.scheduleRestart(applicationContext)
+        LocationServiceWatchdog.scheduleNext(applicationContext)
         super.onTaskRemoved(rootIntent)
     }
 
     override fun onDestroy() {
         stopRequestPolling()
         stopLocationUpdates()
-        config.serviceActive = false
-        config.syncLegacyPrefs()
+        val shouldRestart = config.userId != -1 &&
+            config.apiKey.isNotEmpty() &&
+            !config.trackingPaused
+        if (shouldRestart) {
+            LocationServiceRestart.scheduleRestart(applicationContext)
+            LocationServiceWatchdog.scheduleNext(applicationContext)
+        } else {
+            config.serviceActive = false
+            config.syncLegacyPrefs()
+        }
         super.onDestroy()
     }
 
