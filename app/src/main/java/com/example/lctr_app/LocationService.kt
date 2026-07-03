@@ -62,6 +62,7 @@ class LocationService : Service() {
         super.onCreate()
         config = DeviceConfigStore(this)
         config.loadFromLegacyPrefsIfNeeded()
+        config.migrateLocationIntervalIfNeeded(BuildConfig.VERSION_CODE)
         http = LocatorHttpClient(config)
         reportSender = DeviceReportSender(this, config, http)
         appUpdateManager = AppUpdateManager(this, config)

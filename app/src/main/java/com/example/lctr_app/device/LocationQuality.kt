@@ -32,7 +32,7 @@ object LocationQuality {
         location: Location,
         source: String,
         lastSent: LastSent?,
-        intervalMs: Long = 300_000L,
+        intervalMs: Long = 60_000L,
     ): Reject? {
         if (location.isFromMockProvider) {
             return Reject("mock_location")

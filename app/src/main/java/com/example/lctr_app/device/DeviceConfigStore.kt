@@ -215,6 +215,16 @@ class DeviceConfigStore(context: Context) {
         serviceActive = legacy.getBoolean("location_service_active", false)
     }
 
+    /** После OTA с 5-минутного дефолта переключает сохранённый интервал на 60 с. */
+    fun migrateLocationIntervalIfNeeded(appVersionCode: Int) {
+        if (appVersionCode < 23) return
+        if (prefs.getBoolean(KEY_INTERVAL_MIGRATED_V23, false)) return
+        if (locationIntervalSeconds == LEGACY_LOCATION_INTERVAL_SEC) {
+            locationIntervalSeconds = DEFAULT_LOCATION_INTERVAL_SEC
+        }
+        prefs.edit { putBoolean(KEY_INTERVAL_MIGRATED_V23, true) }
+    }
+
     fun pendingOfflineCount(): Int = offlineQueue().size
 
     fun offlineQueue(): List<String> {
@@ -287,7 +297,10 @@ class DeviceConfigStore(context: Context) {
     companion object {
         private const val PREFS_NAME = "locator_device_config"
         private const val MAX_OFFLINE_QUEUE = 200
-        const val DEFAULT_LOCATION_INTERVAL_SEC = 300L
+        const val DEFAULT_LOCATION_INTERVAL_SEC = 60L
+        /** Старый дефолт до 1.0.22 — мигрируем на 60 с при обновлении. */
+        private const val LEGACY_LOCATION_INTERVAL_SEC = 300L
+        private const val KEY_INTERVAL_MIGRATED_V23 = "location_interval_migrated_v23"
         private const val DEFAULT_HEALTH_INTERVAL_MS = 20 * 60 * 1000L
 
         private const val KEY_API_BASE_URL = "api_base_url"
