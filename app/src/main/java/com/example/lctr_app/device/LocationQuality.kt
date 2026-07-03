@@ -53,11 +53,11 @@ object LocationQuality {
                 lastSent.latitude, lastSent.longitude,
                 location.latitude, location.longitude,
             )
-            // Кэш «застрял» на старых координатах: позиция та же, но fix давно не обновлялся.
-            if (dist < STATIONARY_RADIUS_M && fixAgeMs > MAX_LOCATION_REQUEST_AGE_MS) {
+            // Кэш «застрял» на старых координатах — только если fix очень старый (не каждые 5 мин).
+            val staleStationaryMs = 12 * 60 * 1000L
+            if (dist < STATIONARY_RADIUS_M && fixAgeMs > staleStationaryMs) {
                 return Reject("stale_stationary")
             }
-            // Сеть отдаёт старую точку с плохой точностью без реального движения.
             if (dist < STATIONARY_RADIUS_M && location.hasAccuracy() && location.accuracy > 50f) {
                 return Reject("stationary_poor_accuracy")
             }

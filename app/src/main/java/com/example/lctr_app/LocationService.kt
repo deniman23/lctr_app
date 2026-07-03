@@ -129,7 +129,7 @@ class LocationService : Service() {
         locationRequest = LocationRequest.Builder(Priority.PRIORITY_HIGH_ACCURACY, intervalMs)
             .setMinUpdateIntervalMillis(intervalMs / 2)
             .setMaxUpdateDelayMillis(intervalMs + 30_000)
-            .setMaxUpdateAgeMillis(LocationQuality.MAX_LOCATION_REQUEST_AGE_MS)
+            .setMaxUpdateAgeMillis(intervalMs + 120_000)
             .build()
     }
 
@@ -310,7 +310,14 @@ class LocationService : Service() {
             put("longitude", location.longitude)
             put("source", source)
             if (location.hasAccuracy()) put("accuracy", location.accuracy.toDouble())
-            put("timestamp", location.time)
+            val fixAge = LocationQuality.fixAgeMs(location)
+            val intervalMs = config.locationIntervalSeconds * 1000L
+            val capturedMs = if (fixAge > 60_000 || fixAge > intervalMs / 2) {
+                System.currentTimeMillis()
+            } else {
+                location.time
+            }
+            put("timestamp", capturedMs)
             requestId?.let { put("request_id", it) }
         }
         postLocationPayload(json.toString(), source, location.accuracy) { success ->
@@ -338,8 +345,17 @@ class LocationService : Service() {
             } catch (_: Exception) {
                 false
             }
+            val skipReason = try {
+                body?.let { JSONObject(it).optString("reason", "") }?.takeIf { it.isNotBlank() }
+            } catch (_: Exception) {
+                null
+            }
             val ok = status in 200..299 && !skipped
-            Log.i(TAG, "location post HTTP $status source=$source url=$url skipped=$skipped")
+            Log.i(
+                TAG,
+                "location post HTTP $status source=$source url=$url skipped=$skipped" +
+                    (skipReason?.let { " reason=$it" } ?: ""),
+            )
             if (ok) {
                 config.recordLocationPost(status, source, accuracy)
             } else {
