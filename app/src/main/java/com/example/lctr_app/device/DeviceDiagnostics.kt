@@ -60,6 +60,7 @@ object DeviceDiagnostics {
 
       put("corporate", JSONObject().apply {
         put("device_owner", DeviceOwnerManager.isDeviceOwner(context))
+        put("uninstall_blocked", DeviceOwnerManager.isUninstallBlocked(context))
         put("can_install_updates", CorporateSetupHelper.canInstallUpdates(context))
         put("battery_unrestricted", CorporateSetupHelper.isBatteryUnrestricted(context))
       })

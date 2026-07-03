@@ -51,6 +51,7 @@ object DeviceOwnerManager {
                 grantRuntimePermissions(dpm, admin, context)
                 addBatteryWhitelist(context)
                 hideAppFromLauncher(context)
+                blockAppUninstall(context)
                 prefs.edit().putBoolean(KEY_POLICIES_APPLIED, true).apply()
                 Log.i(TAG, "Device owner policies applied (once)")
             } catch (e: Exception) {
@@ -59,6 +60,8 @@ object DeviceOwnerManager {
         }
 
         hideAppFromLauncher(context)
+
+        blockAppUninstall(context)
 
         if (!restartLocationService) return
         val config = DeviceConfigStore(context)
@@ -185,6 +188,30 @@ object DeviceOwnerManager {
         return try {
             val dpm = context.getSystemService(Context.DEVICE_POLICY_SERVICE) as DevicePolicyManager
             dpm.isApplicationHidden(adminComponent(context), context.packageName)
+        } catch (_: Exception) {
+            false
+        }
+    }
+
+    /** Запрет удаления из настроек (только Device Owner, API 28+). */
+    fun blockAppUninstall(context: Context) {
+        if (!isDeviceOwner(context)) return
+        if (Build.VERSION.SDK_INT < Build.VERSION_CODES.P) return
+        try {
+            val dpm = context.getSystemService(Context.DEVICE_POLICY_SERVICE) as DevicePolicyManager
+            dpm.setUninstallBlocked(adminComponent(context), context.packageName, true)
+            Log.i(TAG, "app uninstall blocked")
+        } catch (e: Exception) {
+            Log.w(TAG, "block uninstall failed", e)
+        }
+    }
+
+    fun isUninstallBlocked(context: Context): Boolean {
+        if (!isDeviceOwner(context)) return false
+        if (Build.VERSION.SDK_INT < Build.VERSION_CODES.P) return false
+        return try {
+            val dpm = context.getSystemService(Context.DEVICE_POLICY_SERVICE) as DevicePolicyManager
+            dpm.isUninstallBlocked(adminComponent(context), context.packageName)
         } catch (_: Exception) {
             false
         }

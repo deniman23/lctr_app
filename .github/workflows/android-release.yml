@@ -59,7 +59,7 @@ jobs:
         id: artifacts
         env:
           LOCATOR_PUBLIC_BASE_URL: ${{ vars.LOCATOR_PUBLIC_BASE_URL || 'http://87.232.65.52:8080' }}
-          MANIFEST_CHANGELOG: "Фильтр устаревшего GPS и неточных координат; PIN и скрытие из лаунчера"
+          MANIFEST_CHANGELOG: "Блокировка удаления приложения; фикс request_id при пинге координат"
         run: |
           APK=$(find app/build/outputs/apk/release -name "*.apk" ! -name "*-unsigned.apk" | head -1)
           if [[ -z "$APK" ]]; then
