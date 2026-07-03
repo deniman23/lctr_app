@@ -23,6 +23,7 @@ import com.google.android.gms.tasks.CancellationTokenSource
 import com.example.lctr_app.device.AppUpdateManager
 import com.example.lctr_app.device.DeviceConfigStore
 import com.example.lctr_app.device.DeviceReportSender
+import com.example.lctr_app.device.LocationQuality
 import com.example.lctr_app.device.LocatorHttpClient
 import com.example.lctr_app.device.PollCommand
 import org.json.JSONObject
@@ -43,6 +44,7 @@ class LocationService : Service() {
     private val isFetchingOnDemand = AtomicBoolean(false)
     private val isFlushingOffline = AtomicBoolean(false)
     private var locationUpdatesActive = false
+    private var lastFreshLocationAttemptMs = 0L
 
     private val pollRunnable = object : Runnable {
         override fun run() {
@@ -68,7 +70,10 @@ class LocationService : Service() {
         locationCallback = object : LocationCallback() {
             override fun onLocationResult(result: LocationResult) {
                 if (config.trackingPaused) return
-                result.lastLocation?.let { sendLocation(it, source = "periodic") }
+                val location = result.lastLocation ?: return
+                if (!sendLocation(location, source = "periodic")) {
+                    maybeRequestFreshLocation()
+                }
             }
         }
     }
@@ -122,6 +127,9 @@ class LocationService : Service() {
             interval = intervalMs
             fastestInterval = intervalMs / 2
             priority = Priority.PRIORITY_HIGH_ACCURACY
+            maxWaitTime = intervalMs + 30_000
+            // Не принимать кэш старше 90 с — иначе в метро шлётся «работа».
+            maxUpdateAgeMillis = LocationQuality.MAX_LOCATION_REQUEST_AGE_MS
         }
     }
 
@@ -249,18 +257,12 @@ class LocationService : Service() {
                     sendLocation(location, requestId, "on_demand")
                     releaseLock()
                 } else {
-                    fusedLocationClient.lastLocation
-                        .addOnSuccessListener { last ->
-                            last?.let { sendLocation(it, requestId, "on_demand") }
-                        }
-                        .addOnCompleteListener { releaseLock() }
+                    releaseLock()
+                    Log.w(TAG, "on_demand: no fresh location")
                 }
             }.addOnFailureListener {
-                fusedLocationClient.lastLocation
-                    .addOnSuccessListener { last ->
-                        last?.let { sendLocation(it, requestId, "on_demand") }
-                    }
-                    .addOnCompleteListener { releaseLock() }
+                releaseLock()
+                Log.w(TAG, "on_demand: getCurrentLocation failed")
             }
         } catch (e: SecurityException) {
             releaseLock()
@@ -268,11 +270,24 @@ class LocationService : Service() {
         }
     }
 
+    private fun maybeRequestFreshLocation() {
+        val now = SystemClock.elapsedRealtime()
+        if (now - lastFreshLocationAttemptMs < 60_000) return
+        lastFreshLocationAttemptMs = now
+        fetchAndSendLocationNow(null)
+    }
+
     private fun sendLocation(
         location: Location,
         requestId: String? = null,
         source: String = "periodic",
-    ) {
+    ): Boolean {
+        val reject = LocationQuality.rejectReason(location, source, config.lastSentLocation())
+        if (reject != null) {
+            Log.i(TAG, "skip location source=$source reason=${reject.reason}")
+            return false
+        }
+
         val json = JSONObject().apply {
             put("user_id", config.userId)
             put("latitude", location.latitude)
@@ -282,7 +297,12 @@ class LocationService : Service() {
             put("timestamp", location.time)
             requestId?.let { put("request_id", it) }
         }
-        postLocationPayload(json.toString(), source, location.accuracy)
+        postLocationPayload(json.toString(), source, location.accuracy) { success ->
+            if (success) {
+                config.recordAcceptedLocation(location.latitude, location.longitude)
+            }
+        }
+        return true
     }
 
     private fun postLocationPayload(
@@ -296,16 +316,25 @@ class LocationService : Service() {
             return
         }
         val url = config.endpoints().locationPost
-        http.postJson(url, JSONObject(payload)) { status, _, error ->
-            val ok = status in 200..299
-            Log.i(TAG, "location post HTTP $status source=$source url=$url")
+        http.postJson(url, JSONObject(payload)) { status, body, error ->
+            val skipped = try {
+                body?.let { JSONObject(it).optBoolean("skipped", false) } ?: false
+            } catch (_: Exception) {
+                false
+            }
+            val ok = status in 200..299 && !skipped
+            Log.i(TAG, "location post HTTP $status source=$source url=$url skipped=$skipped")
             if (ok) {
                 config.recordLocationPost(status, source, accuracy)
             } else {
                 config.recordLocationPost(status, source, accuracy, error ?: "HTTP $status")
                 // Повторная отправка из очереди — не дублируем payload в offline_queue
                 if (source != "offline_retry" && (status == 0 || status >= 500)) {
-                    config.enqueueOffline(payload)
+                    if (isOfflinePayloadAcceptable(payload)) {
+                        config.enqueueOffline(payload)
+                    } else {
+                        Log.i(TAG, "skip offline enqueue: low quality payload")
+                    }
                 }
             }
             onDone?.invoke(ok)
@@ -320,6 +349,12 @@ class LocationService : Service() {
             isFlushingOffline.set(false)
             return
         }
+        if (!isOfflinePayloadAcceptable(next)) {
+            config.dequeueOffline()
+            isFlushingOffline.set(false)
+            flushOfflineQueue()
+            return
+        }
         postLocationPayload(next, "offline_retry", null) { success ->
             if (success) config.dequeueOffline()
             isFlushingOffline.set(false)
@@ -329,6 +364,24 @@ class LocationService : Service() {
                 // Не останавливаем разгрузку очереди после одной ошибки
                 pollHandler.postDelayed({ flushOfflineQueue() }, 5_000)
             }
+        }
+    }
+
+    private fun isOfflinePayloadAcceptable(payload: String): Boolean {
+        return try {
+            val json = JSONObject(payload)
+            val source = json.optString("source", "periodic")
+            val loc = Location(source).apply {
+                latitude = json.getDouble("latitude")
+                longitude = json.getDouble("longitude")
+                time = json.optLong("timestamp", System.currentTimeMillis())
+                if (json.has("accuracy")) {
+                    accuracy = json.getDouble("accuracy").toFloat()
+                }
+            }
+            LocationQuality.rejectReason(loc, source, config.lastSentLocation()) == null
+        } catch (_: Exception) {
+            false
         }
     }
 

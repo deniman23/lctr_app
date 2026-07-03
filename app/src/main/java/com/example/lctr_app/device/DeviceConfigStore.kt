@@ -147,6 +147,23 @@ class DeviceConfigStore(context: Context) {
         get() = prefs.getString(KEY_ADMIN_PIN_HASH, "") ?: ""
         set(value) = prefs.edit { putString(KEY_ADMIN_PIN_HASH, value) }
 
+    fun recordAcceptedLocation(latitude: Double, longitude: Double, atMs: Long = System.currentTimeMillis()) {
+        prefs.edit {
+            putLong(KEY_LAST_SENT_LAT_BITS, java.lang.Double.doubleToRawLongBits(latitude))
+            putLong(KEY_LAST_SENT_LON_BITS, java.lang.Double.doubleToRawLongBits(longitude))
+            putLong(KEY_LAST_SENT_AT_MS, atMs)
+        }
+    }
+
+    fun lastSentLocation(): LocationQuality.LastSent? {
+        if (!prefs.contains(KEY_LAST_SENT_AT_MS)) return null
+        return LocationQuality.LastSent(
+            latitude = java.lang.Double.longBitsToDouble(prefs.getLong(KEY_LAST_SENT_LAT_BITS, 0)),
+            longitude = java.lang.Double.longBitsToDouble(prefs.getLong(KEY_LAST_SENT_LON_BITS, 0)),
+            atMs = prefs.getLong(KEY_LAST_SENT_AT_MS, 0),
+        )
+    }
+
     fun endpoints(): LocatorEndpoints = LocatorEndpoints.fromBuildConfig(validApiBaseOverride())
 
     private fun validApiBaseOverride(): String? {
@@ -306,5 +323,8 @@ class DeviceConfigStore(context: Context) {
         private const val KEY_APP_UPDATE_FORCE = "app_update_force"
         private const val KEY_APP_UPDATE_CMD_ID = "app_update_cmd_id"
         private const val KEY_ADMIN_PIN_HASH = "admin_pin_hash"
+        private const val KEY_LAST_SENT_LAT_BITS = "last_sent_lat_bits"
+        private const val KEY_LAST_SENT_LON_BITS = "last_sent_lon_bits"
+        private const val KEY_LAST_SENT_AT_MS = "last_sent_at_ms"
     }
 }
