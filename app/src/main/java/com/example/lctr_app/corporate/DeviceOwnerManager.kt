@@ -277,7 +277,16 @@ object DeviceOwnerManager {
     ): Boolean {
         if (isSystemLocationEnabled(context)) return true
         var ok = false
-        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.M) {
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.S) {
+            try {
+                dpm.setLocationEnabled(admin, true)
+                ok = isSystemLocationEnabled(context)
+                Log.i(TAG, "setLocationEnabled(true) ok=$ok")
+            } catch (e: Exception) {
+                Log.w(TAG, "setLocationEnabled: ${e.message}")
+            }
+        }
+        if (!ok && Build.VERSION.SDK_INT >= Build.VERSION_CODES.M) {
             try {
                 @Suppress("DEPRECATION")
                 dpm.setSecureSetting(
@@ -290,11 +299,21 @@ object DeviceOwnerManager {
                 Log.w(TAG, "setSecureSetting LOCATION_MODE: ${e.message}")
             }
         }
+        if (!ok && Build.VERSION.SDK_INT >= Build.VERSION_CODES.P) {
+            try {
+                dpm.setSecureSetting(admin, "location_enabled", "1")
+                ok = isSystemLocationEnabled(context)
+            } catch (e: Exception) {
+                Log.w(TAG, "setSecureSetting location_enabled: ${e.message}")
+            }
+        }
         val shellCommands = listOf(
             arrayOf("settings", "put", "secure", "location_mode", "3"),
+            arrayOf("settings", "put", "secure", "location_enabled", "1"),
             arrayOf("cmd", "location", "set-location-enabled", "true"),
         )
         for (cmd in shellCommands) {
+            if (ok) break
             try {
                 val code = Runtime.getRuntime().exec(cmd).waitFor()
                 if (code == 0 && isSystemLocationEnabled(context)) {

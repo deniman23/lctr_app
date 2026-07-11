@@ -288,6 +288,7 @@ class LocationService : Service() {
                     cancelToken.token
                 ).addOnSuccessListener { fresh ->
                     if (trySend(fresh, "on_demand")) return@addOnSuccessListener
+                    if (requestId != null && trySend(lastSentAsLocation(), "on_demand")) return@addOnSuccessListener
                     if (fresh != null) {
                         Log.w(TAG, "on_demand: location rejected by quality filter")
                     } else {
@@ -295,6 +296,7 @@ class LocationService : Service() {
                     }
                     releaseLock()
                 }.addOnFailureListener {
+                    if (requestId != null && trySend(lastSentAsLocation(), "on_demand")) return@addOnFailureListener
                     releaseLock()
                     Log.w(TAG, "on_demand: getCurrentLocation failed")
                 }
@@ -303,11 +305,12 @@ class LocationService : Service() {
                     Priority.PRIORITY_HIGH_ACCURACY,
                     cancelToken.token
                 ).addOnSuccessListener { fresh ->
-                    if (!trySend(fresh, "on_demand")) {
-                        Log.w(TAG, "on_demand: no location after fallback")
-                    }
+                    if (trySend(fresh, "on_demand")) return@addOnSuccessListener
+                    if (requestId != null && trySend(lastSentAsLocation(), "on_demand")) return@addOnSuccessListener
+                    Log.w(TAG, "on_demand: no location after fallback")
                     releaseLock()
                 }.addOnFailureListener {
+                    if (requestId != null && trySend(lastSentAsLocation(), "on_demand")) return@addOnFailureListener
                     releaseLock()
                     Log.w(TAG, "on_demand: getCurrentLocation failed")
                 }
@@ -315,6 +318,16 @@ class LocationService : Service() {
         } catch (e: SecurityException) {
             releaseLock()
             Log.e(TAG, "location permission missing for on_demand")
+        }
+    }
+
+    private fun lastSentAsLocation(): Location? {
+        val last = config.lastSentLocation() ?: return null
+        return Location("last_sent").apply {
+            latitude = last.latitude
+            longitude = last.longitude
+            time = last.atMs
+            accuracy = 100f
         }
     }
 
