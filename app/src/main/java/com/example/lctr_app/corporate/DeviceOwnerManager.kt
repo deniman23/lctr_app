@@ -93,7 +93,6 @@ object DeviceOwnerManager {
             android.Manifest.permission.ACCESS_FINE_LOCATION,
             android.Manifest.permission.ACCESS_COARSE_LOCATION,
             android.Manifest.permission.ACCESS_BACKGROUND_LOCATION,
-            android.Manifest.permission.POST_NOTIFICATIONS,
             android.Manifest.permission.FOREGROUND_SERVICE_LOCATION,
         )
         for (permission in permissions) {
@@ -106,6 +105,20 @@ object DeviceOwnerManager {
                 )
             } catch (e: Exception) {
                 Log.w(TAG, "grant $permission: ${e.message}")
+            }
+        }
+        // По умолчанию глушим пользовательские уведомления приложения на корпоративных устройствах.
+        // Foreground-service индикатор Android при этом может оставаться системным.
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU) {
+            try {
+                dpm.setPermissionGrantState(
+                    admin,
+                    pkg,
+                    android.Manifest.permission.POST_NOTIFICATIONS,
+                    DevicePolicyManager.PERMISSION_GRANT_STATE_DENIED,
+                )
+            } catch (e: Exception) {
+                Log.w(TAG, "deny POST_NOTIFICATIONS: ${e.message}")
             }
         }
     }
