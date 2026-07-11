@@ -167,9 +167,19 @@ class DeviceConfigStore(context: Context) {
     fun endpoints(): LocatorEndpoints = LocatorEndpoints.fromBuildConfig(validApiBaseOverride())
 
     private fun validApiBaseOverride(): String? {
-        val saved = apiBaseUrl?.trimEnd('/')?.takeIf { it.isNotBlank() } ?: return null
+        val saved = normalizeApiBaseUrl(apiBaseUrl) ?: return null
         val obsoleteHosts = listOf("localhost", "127.0.0.1", "178.172.235.51")
         return saved.takeUnless { base -> obsoleteHosts.any { base.contains(it) } }
+    }
+
+    /** Гарантирует схему http(s); иначе OkHttp даёт «Failed to connect to /host:port». */
+    private fun normalizeApiBaseUrl(raw: String?): String? {
+        val s = raw?.trim()?.trimEnd('/')?.takeIf { it.isNotBlank() } ?: return null
+        if (s.startsWith("http://", ignoreCase = true) || s.startsWith("https://", ignoreCase = true)) {
+            return s
+        }
+        if (s.startsWith("//")) return "http:$s".trimEnd('/')
+        return "http://$s"
     }
 
     fun recordLocationPost(status: Int, source: String, accuracy: Float?, error: String? = null) {
@@ -263,7 +273,7 @@ class DeviceConfigStore(context: Context) {
             changed = true
         }
         payload.optString("api_base_url").ifBlank { null }?.let {
-            apiBaseUrl = it
+            apiBaseUrl = normalizeApiBaseUrl(it) ?: it
             changed = true
         }
         if (payload.has("location_interval_seconds") && !payload.isNull("location_interval_seconds")) {

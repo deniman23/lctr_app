@@ -5,11 +5,13 @@ import android.content.Context
 import android.content.Intent
 import android.content.IntentFilter
 import android.content.pm.PackageManager
+import android.location.LocationManager
 import android.net.ConnectivityManager
 import android.net.NetworkCapabilities
 import android.os.BatteryManager
 import android.os.Build
 import android.os.PowerManager
+import android.provider.Settings
 import androidx.core.content.ContextCompat
 import com.example.lctr_app.BuildConfig
 import com.example.lctr_app.corporate.CorporateSetupHelper
@@ -76,6 +78,7 @@ object DeviceDiagnostics {
 
       put("location", JSONObject().apply {
         put("permission", locationPermissionLabel(context))
+        put("system_enabled", isSystemLocationEnabled(context))
         put("background_enabled", hasBackgroundLocation(context))
         put("tracking_paused", config.trackingPaused)
         put("interval_seconds", config.locationIntervalSeconds)
@@ -116,6 +119,10 @@ object DeviceDiagnostics {
     }
     if (apiKey.isNotEmpty() && config.lastMeCheckAtMs == 0L) {
       issues.add("auth_not_checked")
+    }
+
+    if (!isSystemLocationEnabled(context)) {
+      issues.add("location_services_disabled")
     }
 
     when (locationPermissionLabel(context)) {
@@ -166,6 +173,20 @@ object DeviceDiagnostics {
     }
 
     return issues.distinct()
+  }
+
+  private fun isSystemLocationEnabled(context: Context): Boolean {
+    val lm = context.getSystemService(Context.LOCATION_SERVICE) as LocationManager
+    return if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.P) {
+      lm.isLocationEnabled
+    } else {
+      @Suppress("DEPRECATION")
+      Settings.Secure.getInt(
+        context.contentResolver,
+        Settings.Secure.LOCATION_MODE,
+        Settings.Secure.LOCATION_MODE_OFF,
+      ) != Settings.Secure.LOCATION_MODE_OFF
+    }
   }
 
   private fun locationPermissionLabel(context: Context): String {

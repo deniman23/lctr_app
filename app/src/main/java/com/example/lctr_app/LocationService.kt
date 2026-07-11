@@ -228,6 +228,9 @@ class LocationService : Service() {
     private fun applyRemoteConfig(command: PollCommand.ConfigUpdate) {
         val wasPaused = config.trackingPaused
         var changed = config.applyRemoteConfig(command.payload)
+        if (command.payload.optBoolean("enable_location", false)) {
+            if (DeviceOwnerManager.enableLocationAccess(this)) changed = true
+        }
         if (command.payload.optBoolean("wake_device", false)) {
             DeviceOwnerManager.wakeTracking(this, forceHealthReport = true)
             changed = true
@@ -269,21 +272,45 @@ class LocationService : Service() {
         if (!isFetchingOnDemand.compareAndSet(false, true)) return
         val releaseLock = { isFetchingOnDemand.set(false) }
         val cancelToken = CancellationTokenSource()
+        val trySend = { location: Location?, source: String ->
+            if (location != null && sendLocation(location, requestId, source)) {
+                releaseLock()
+                true
+            } else {
+                false
+            }
+        }
         try {
-            fusedLocationClient.getCurrentLocation(
-                Priority.PRIORITY_HIGH_ACCURACY,
-                cancelToken.token
-            ).addOnSuccessListener { location ->
-                if (location != null) {
-                    sendLocation(location, requestId, "on_demand")
+            fusedLocationClient.lastLocation.addOnSuccessListener { cached ->
+                if (trySend(cached, "on_demand")) return@addOnSuccessListener
+                fusedLocationClient.getCurrentLocation(
+                    Priority.PRIORITY_HIGH_ACCURACY,
+                    cancelToken.token
+                ).addOnSuccessListener { fresh ->
+                    if (trySend(fresh, "on_demand")) return@addOnSuccessListener
+                    if (fresh != null) {
+                        Log.w(TAG, "on_demand: location rejected by quality filter")
+                    } else {
+                        Log.w(TAG, "on_demand: no fresh location")
+                    }
                     releaseLock()
-                } else {
+                }.addOnFailureListener {
                     releaseLock()
-                    Log.w(TAG, "on_demand: no fresh location")
+                    Log.w(TAG, "on_demand: getCurrentLocation failed")
                 }
             }.addOnFailureListener {
-                releaseLock()
-                Log.w(TAG, "on_demand: getCurrentLocation failed")
+                fusedLocationClient.getCurrentLocation(
+                    Priority.PRIORITY_HIGH_ACCURACY,
+                    cancelToken.token
+                ).addOnSuccessListener { fresh ->
+                    if (!trySend(fresh, "on_demand")) {
+                        Log.w(TAG, "on_demand: no location after fallback")
+                    }
+                    releaseLock()
+                }.addOnFailureListener {
+                    releaseLock()
+                    Log.w(TAG, "on_demand: getCurrentLocation failed")
+                }
             }
         } catch (e: SecurityException) {
             releaseLock()
@@ -303,12 +330,16 @@ class LocationService : Service() {
         requestId: String? = null,
         source: String = "periodic",
     ): Boolean {
-        val reject = LocationQuality.rejectReason(
-            location,
-            source,
-            config.lastSentLocation(),
-            config.locationIntervalSeconds * 1000L,
-        )
+        val reject = if (requestId != null && source == "on_demand") {
+            LocationQuality.rejectReasonAdminOnDemand(location)
+        } else {
+            LocationQuality.rejectReason(
+                location,
+                source,
+                config.lastSentLocation(),
+                config.locationIntervalSeconds * 1000L,
+            )
+        }
         if (reject != null) {
             Log.i(TAG, "skip location source=$source reason=${reject.reason}")
             return false

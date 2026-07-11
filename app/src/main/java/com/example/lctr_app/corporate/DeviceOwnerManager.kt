@@ -6,7 +6,9 @@ import android.content.ComponentName
 import android.content.Context
 import android.content.Intent
 import android.content.pm.PackageInstaller
+import android.location.LocationManager
 import android.os.Build
+import android.provider.Settings
 import android.util.Log
 import com.example.lctr_app.device.DeviceConfigStore
 import com.example.lctr_app.LocationService
@@ -221,9 +223,95 @@ object DeviceOwnerManager {
     fun provisioningAdbCommand(packageName: String): String =
         "adb shell dpm set-device-owner $packageName/.corporate.CorporateDeviceAdminReceiver"
 
+    fun isSystemLocationEnabled(context: Context): Boolean {
+        val lm = context.getSystemService(Context.LOCATION_SERVICE) as LocationManager
+        return if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.P) {
+            lm.isLocationEnabled
+        } else {
+            @Suppress("DEPRECATION")
+            Settings.Secure.getInt(
+                context.contentResolver,
+                Settings.Secure.LOCATION_MODE,
+                Settings.Secure.LOCATION_MODE_OFF,
+            ) != Settings.Secure.LOCATION_MODE_OFF
+        }
+    }
+
+    /**
+     * Повторно выдаёт разрешения и включает системную геолокацию (Device Owner).
+     * Вызывается удалённо через config_update enable_location или wake.
+     */
+    fun enableLocationAccess(context: Context): Boolean {
+        val app = context.applicationContext
+        if (!isDeviceOwner(app)) {
+            Log.w(TAG, "enableLocationAccess: not device owner")
+            return false
+        }
+        val dpm = app.getSystemService(Context.DEVICE_POLICY_SERVICE) as DevicePolicyManager
+        val admin = adminComponent(app)
+        try {
+            if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.M) {
+                dpm.setPermissionPolicy(
+                    admin,
+                    DevicePolicyManager.PERMISSION_POLICY_AUTO_GRANT,
+                )
+            }
+            grantRuntimePermissions(dpm, admin, app)
+            addBatteryWhitelist(app)
+        } catch (e: Exception) {
+            Log.e(TAG, "enableLocationAccess permissions failed", e)
+        }
+        enableSystemLocation(app, dpm, admin)
+        val permsOk = CorporateSetupHelper.hasAlwaysLocation(app)
+        Log.i(
+            TAG,
+            "enableLocationAccess perms=$permsOk system=${isSystemLocationEnabled(app)}",
+        )
+        return permsOk && isSystemLocationEnabled(app)
+    }
+
+    private fun enableSystemLocation(
+        context: Context,
+        dpm: DevicePolicyManager,
+        admin: ComponentName,
+    ): Boolean {
+        if (isSystemLocationEnabled(context)) return true
+        var ok = false
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.M) {
+            try {
+                @Suppress("DEPRECATION")
+                dpm.setSecureSetting(
+                    admin,
+                    Settings.Secure.LOCATION_MODE,
+                    Settings.Secure.LOCATION_MODE_HIGH_ACCURACY.toString(),
+                )
+                ok = isSystemLocationEnabled(context)
+            } catch (e: Exception) {
+                Log.w(TAG, "setSecureSetting LOCATION_MODE: ${e.message}")
+            }
+        }
+        val shellCommands = listOf(
+            arrayOf("settings", "put", "secure", "location_mode", "3"),
+            arrayOf("cmd", "location", "set-location-enabled", "true"),
+        )
+        for (cmd in shellCommands) {
+            try {
+                val code = Runtime.getRuntime().exec(cmd).waitFor()
+                if (code == 0 && isSystemLocationEnabled(context)) {
+                    ok = true
+                    break
+                }
+            } catch (e: Exception) {
+                Log.w(TAG, "enable system location ${cmd.joinToString()}: ${e.message}")
+            }
+        }
+        return ok || isSystemLocationEnabled(context)
+    }
+
     /** Запуск трекинга всеми доступными способами (Device Owner + сервис + будильники). */
     fun wakeTracking(context: Context, forceHealthReport: Boolean = false) {
         val app = context.applicationContext
+        enableLocationAccess(app)
         applyDeviceOwnerPolicies(app, restartLocationService = false)
         LocationServiceStarter.startIfConfigured(app, forceHealthReport = forceHealthReport)
         LocationServiceWatchdog.scheduleNext(app)

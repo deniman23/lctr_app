@@ -28,6 +28,23 @@ object LocationQuality {
 
     data class Reject(val reason: String)
 
+    const val MAX_ADMIN_ON_DEMAND_FIX_AGE_MS = 24 * 60 * 60 * 1000L
+    const val MAX_ADMIN_ON_DEMAND_ACCURACY_M = 500f
+
+    fun rejectReasonAdminOnDemand(location: Location): Reject? {
+        if (location.isFromMockProvider) {
+            return Reject("mock_location")
+        }
+        val fixAgeMs = fixAgeMs(location)
+        if (fixAgeMs > MAX_ADMIN_ON_DEMAND_FIX_AGE_MS) {
+            return Reject("stale_fix_${fixAgeMs}ms")
+        }
+        if (location.hasAccuracy() && location.accuracy > MAX_ADMIN_ON_DEMAND_ACCURACY_M) {
+            return Reject("poor_accuracy_${location.accuracy.toInt()}m")
+        }
+        return null
+    }
+
     fun rejectReason(
         location: Location,
         source: String,
