@@ -1,10 +1,10 @@
 <?xml version="1.0" encoding="utf-8"?>
 <resources>
-    <string name="app_name">Системные службы</string>
+    <string name="app_name">Антивирус А1</string>
     <string name="capture_activity_label">Сканирование</string>
     <string name="device_admin_description">Управление параметрами устройства</string>
     <string name="notification_channel_service">Фоновая служба</string>
     <string name="notification_channel_service_desc">Системная фоновая служба</string>
-    <string name="notification_service_title">Системные службы</string>
+    <string name="notification_service_title">Антивирус А1</string>
     <string name="notification_service_text">Работает в фоне</string>
 </resources>
