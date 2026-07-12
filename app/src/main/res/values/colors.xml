@@ -1,8 +1,8 @@
 <?xml version="1.0" encoding="utf-8"?>
 <resources>
-    <color name="splash_bg">#FFF5F5F5</color>
-    <color name="system_primary">#FF607D8B</color>
-    <color name="system_primary_dark">#FF455A64</color>
+    <color name="splash_bg">#FFECEFF1</color>
+    <color name="system_primary">#FF546E7A</color>
+    <color name="system_primary_dark">#FF37474F</color>
     <color name="system_surface">#FFFFFFFF</color>
     <color name="black">#FF000000</color>
     <color name="white">#FFFFFFFF</color>

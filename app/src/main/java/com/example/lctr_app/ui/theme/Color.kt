@@ -2,6 +2,7 @@ package com.example.lctr_app.ui.theme
 
 import androidx.compose.ui.graphics.Color
 
-val SystemGray = Color(0xFF607D8B)
-val SystemGrayDark = Color(0xFF455A64)
-val SystemSurface = Color(0xFFF5F5F5)
+val SystemGray = Color(0xFF546E7A)
+val SystemGrayDark = Color(0xFF37474F)
+val SystemSurface = Color(0xFFECEFF1)
+val SystemAccent = Color(0xFF78909C)

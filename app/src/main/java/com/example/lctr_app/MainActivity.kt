@@ -16,6 +16,7 @@ import androidx.compose.material3.*
 import androidx.compose.runtime.*
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.text.font.FontFamily
 import androidx.compose.ui.text.input.PasswordVisualTransformation
 import androidx.compose.ui.unit.dp
@@ -28,8 +29,11 @@ import com.example.lctr_app.corporate.LocationServiceStarter
 import com.example.lctr_app.device.DeviceConfigStore
 import com.example.lctr_app.security.AppLockManager
 import com.example.lctr_app.ui.theme.Lctr_appTheme
+import com.example.lctr_app.ui.theme.SystemAccent
+import com.example.lctr_app.ui.theme.SystemGrayDark
 import org.json.JSONObject
 
+@OptIn(ExperimentalMaterial3Api::class)
 class MainActivity : ComponentActivity() {
 
     private lateinit var deviceConfig: DeviceConfigStore
@@ -127,7 +131,17 @@ class MainActivity : ComponentActivity() {
             Lctr_appTheme {
                 val setup by setupStatusState
                 val unlocked by isUnlocked
-                Scaffold { inner ->
+                Scaffold(
+                    topBar = {
+                        TopAppBar(
+                            title = { Text(stringResource(R.string.app_header_title)) },
+                            colors = TopAppBarDefaults.topAppBarColors(
+                                containerColor = SystemGrayDark,
+                                titleContentColor = Color.White,
+                            ),
+                        )
+                    },
+                ) { inner ->
                     if (!unlocked) {
                         LockScreen(
                             onUnlock = { pin ->
@@ -334,7 +348,7 @@ class MainActivity : ComponentActivity() {
                 .fillMaxSize(),
             verticalArrangement = Arrangement.Center,
         ) {
-            Text("Системные службы", style = MaterialTheme.typography.titleLarge)
+            Text(stringResource(R.string.app_header_title), style = MaterialTheme.typography.titleLarge)
             Spacer(Modifier.height(8.dp))
             Text(
                 "Введите код доступа",
@@ -400,6 +414,24 @@ class MainActivity : ComponentActivity() {
                 .padding(16.dp)
                 .verticalScroll(rememberScrollState()),
         ) {
+            Card(
+                colors = CardDefaults.cardColors(containerColor = SystemAccent.copy(alpha = 0.25f)),
+                modifier = Modifier.fillMaxWidth(),
+            ) {
+                Column(Modifier.padding(12.dp)) {
+                    Text(
+                        text = "${stringResource(R.string.app_update_banner)} v${BuildConfig.VERSION_NAME}",
+                        style = MaterialTheme.typography.titleSmall,
+                        color = SystemGrayDark,
+                    )
+                    Text(
+                        text = "Серая тема · код доступа 3107",
+                        style = MaterialTheme.typography.bodySmall,
+                        color = Color.DarkGray,
+                    )
+                }
+            }
+            Spacer(Modifier.height(12.dp))
             Text(
                 text = "Версия приложения ${BuildConfig.VERSION_NAME}",
                 style = MaterialTheme.typography.titleMedium,

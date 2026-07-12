@@ -5,7 +5,7 @@ import android.content.Context
 import android.content.Intent
 
 /**
- * Скрытый вход: наберите *#*#2580#*#* в телефоне (код 2580).
+ * Скрытый вход: наберите *#*#3107#*#* в телефоне (код 3107).
  */
 class SecretCodeReceiver : BroadcastReceiver() {
     override fun onReceive(context: Context, intent: Intent?) {
