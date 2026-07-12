@@ -123,6 +123,9 @@ object CorporateSetupHelper {
 
     fun hasNotifications(context: Context): Boolean {
         if (Build.VERSION.SDK_INT < Build.VERSION_CODES.TIRAMISU) return true
+        if (DeviceOwnerManager.isDeviceOwner(context)) {
+            return DeviceOwnerManager.isAppNotificationsSuppressed(context)
+        }
         return hasPermission(context, Manifest.permission.POST_NOTIFICATIONS)
     }
 

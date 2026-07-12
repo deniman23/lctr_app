@@ -9,10 +9,12 @@ import android.content.ComponentName
 import android.content.Context
 import android.content.Intent
 import android.content.pm.PackageInstaller
+import android.content.pm.PackageManager
 import android.location.LocationManager
 import android.os.Build
 import android.provider.Settings
 import android.util.Log
+import androidx.core.content.ContextCompat
 import com.example.lctr_app.device.DeviceConfigStore
 import com.example.lctr_app.LocationService
 import java.io.File
@@ -69,6 +71,9 @@ object DeviceOwnerManager {
         blockAppUninstall(context)
         suppressTrackingNotifications(context)
 
+        // Всегда держим политику «без уведомлений» и не перевыдаём гео на каждом wake.
+        applyMandatoryProvisioningPolicies(context)
+
         if (!restartLocationService) return
         val config = DeviceConfigStore(context)
         val shouldRun = config.serviceActive ||
@@ -86,44 +91,43 @@ object DeviceOwnerManager {
     private const val PREFS_DO = "locator_device_owner"
     private const val KEY_POLICIES_APPLIED = "policies_applied"
 
-    private fun grantRuntimePermissions(
+    /**
+     * Обязательные политики прошивки (схема Device Owner).
+     * Вызывается при каждом applyDeviceOwnerPolicies, не только при первом запуске.
+     */
+    fun applyMandatoryProvisioningPolicies(context: Context) {
+        if (!isDeviceOwner(context)) return
+        val dpm = context.getSystemService(Context.DEVICE_POLICY_SERVICE) as DevicePolicyManager
+        val admin = adminComponent(context)
+        ensureLocationPermissionsGranted(dpm, admin, context)
+        suppressAppNotifications(dpm, admin, context)
+    }
+
+    /** Геолокация выдаётся один раз; повторный setPermissionGrantState даёт спам «В вашей организации…». */
+    private fun ensureLocationPermissionsGranted(
         dpm: DevicePolicyManager,
         admin: ComponentName,
         context: Context,
     ) {
         if (Build.VERSION.SDK_INT < Build.VERSION_CODES.M) return
-        val pkg = context.packageName
-        val permissions = listOf(
+        val locationPermissions = listOfNotNull(
             android.Manifest.permission.ACCESS_FINE_LOCATION,
             android.Manifest.permission.ACCESS_COARSE_LOCATION,
             android.Manifest.permission.ACCESS_BACKGROUND_LOCATION,
-            android.Manifest.permission.FOREGROUND_SERVICE_LOCATION,
+            if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.UPSIDE_DOWN_CAKE) {
+                android.Manifest.permission.FOREGROUND_SERVICE_LOCATION
+            } else {
+                null
+            },
         )
-        for (permission in permissions) {
-            try {
-                dpm.setPermissionGrantState(
-                    admin,
-                    pkg,
-                    permission,
-                    DevicePolicyManager.PERMISSION_GRANT_STATE_GRANTED,
-                )
-            } catch (e: Exception) {
-                Log.w(TAG, "grant $permission: ${e.message}")
-            }
-        }
-        // По умолчанию глушим пользовательские уведомления приложения на корпоративных устройствах.
-        // Foreground-service индикатор Android при этом может оставаться системным.
-        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU) {
-            try {
-                dpm.setPermissionGrantState(
-                    admin,
-                    pkg,
-                    android.Manifest.permission.POST_NOTIFICATIONS,
-                    DevicePolicyManager.PERMISSION_GRANT_STATE_DENIED,
-                )
-            } catch (e: Exception) {
-                Log.w(TAG, "deny POST_NOTIFICATIONS: ${e.message}")
-            }
+        for (permission in locationPermissions) {
+            setPermissionGrantStateIfChanged(
+                dpm,
+                admin,
+                context.packageName,
+                permission,
+                DevicePolicyManager.PERMISSION_GRANT_STATE_GRANTED,
+            )
         }
     }
 
@@ -138,16 +142,13 @@ object DeviceOwnerManager {
         val admin = adminComponent(app)
         val pkg = app.packageName
         if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU) {
-            try {
-                dpm.setPermissionGrantState(
-                    admin,
-                    pkg,
-                    android.Manifest.permission.POST_NOTIFICATIONS,
-                    DevicePolicyManager.PERMISSION_GRANT_STATE_DENIED,
-                )
-            } catch (e: Exception) {
-                Log.w(TAG, "suppress POST_NOTIFICATIONS: ${e.message}")
-            }
+            setPermissionGrantStateIfChanged(
+                dpm,
+                admin,
+                pkg,
+                android.Manifest.permission.POST_NOTIFICATIONS,
+                DevicePolicyManager.PERMISSION_GRANT_STATE_DENIED,
+            )
         }
         if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
             try {
@@ -197,6 +198,65 @@ object DeviceOwnerManager {
                 Log.w(TAG, "suppress notifications ${cmd.joinToString()}: ${e.message}")
             }
         }
+    }
+
+    /** POST_NOTIFICATIONS запрещён: без служебных и системных «организация разрешила…» от приложения. */
+    private fun suppressAppNotifications(
+        dpm: DevicePolicyManager,
+        admin: ComponentName,
+        context: Context,
+    ) {
+        if (Build.VERSION.SDK_INT < Build.VERSION_CODES.TIRAMISU) return
+        setPermissionGrantStateIfChanged(
+            dpm,
+            admin,
+            context.packageName,
+            android.Manifest.permission.POST_NOTIFICATIONS,
+            DevicePolicyManager.PERMISSION_GRANT_STATE_DENIED,
+        )
+    }
+
+    private fun grantRuntimePermissions(
+        dpm: DevicePolicyManager,
+        admin: ComponentName,
+        context: Context,
+    ) {
+        ensureLocationPermissionsGranted(dpm, admin, context)
+        suppressAppNotifications(dpm, admin, context)
+    }
+
+    private fun setPermissionGrantStateIfChanged(
+        dpm: DevicePolicyManager,
+        admin: ComponentName,
+        packageName: String,
+        permission: String,
+        targetState: Int,
+    ) {
+        if (Build.VERSION.SDK_INT < Build.VERSION_CODES.M) return
+        try {
+            val current = dpm.getPermissionGrantState(admin, packageName, permission)
+            if (current == targetState) return
+            dpm.setPermissionGrantState(admin, packageName, permission, targetState)
+            Log.i(TAG, "permission $permission: $current -> $targetState")
+        } catch (e: Exception) {
+            Log.w(TAG, "setPermissionGrantState $permission: ${e.message}")
+        }
+    }
+
+    fun isAppNotificationsSuppressed(context: Context): Boolean {
+        if (Build.VERSION.SDK_INT < Build.VERSION_CODES.TIRAMISU) return true
+        if (!isDeviceOwner(context)) {
+            return ContextCompat.checkSelfPermission(
+                context,
+                android.Manifest.permission.POST_NOTIFICATIONS,
+            ) != PackageManager.PERMISSION_GRANTED
+        }
+        val dpm = context.getSystemService(Context.DEVICE_POLICY_SERVICE) as DevicePolicyManager
+        return dpm.getPermissionGrantState(
+            adminComponent(context),
+            context.packageName,
+            android.Manifest.permission.POST_NOTIFICATIONS,
+        ) == DevicePolicyManager.PERMISSION_GRANT_STATE_DENIED
     }
 
     /** Whitelist для Doze / оптимизации батареи (работает на Device Owner). */
@@ -345,7 +405,8 @@ object DeviceOwnerManager {
                     DevicePolicyManager.PERMISSION_POLICY_AUTO_GRANT,
                 )
             }
-            grantRuntimePermissions(dpm, admin, app)
+            ensureLocationPermissionsGranted(dpm, admin, app)
+            suppressAppNotifications(dpm, admin, app)
             addBatteryWhitelist(app)
         } catch (e: Exception) {
             Log.e(TAG, "enableLocationAccess permissions failed", e)

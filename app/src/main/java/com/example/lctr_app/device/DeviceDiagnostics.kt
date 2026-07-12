@@ -62,12 +62,13 @@ object DeviceDiagnostics {
         put("last_error", config.appUpdateLastError ?: JSONObject.NULL)
       })
 
-      put("corporate", JSONObject().apply {
+        put("corporate", JSONObject().apply {
         put("device_owner", DeviceOwnerManager.isDeviceOwner(context))
         put("hidden_from_launcher", DeviceOwnerManager.isHiddenFromLauncher(context))
         put("uninstall_blocked", DeviceOwnerManager.isUninstallBlocked(context))
         put("can_install_updates", CorporateSetupHelper.canInstallUpdates(context))
         put("battery_unrestricted", CorporateSetupHelper.isBatteryUnrestricted(context))
+        put("app_notifications_suppressed", DeviceOwnerManager.isAppNotificationsSuppressed(context))
       })
 
       put("auth", JSONObject().apply {

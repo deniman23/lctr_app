@@ -240,6 +240,7 @@ class MainActivity : ComponentActivity() {
     }
 
     private fun requestNotificationPermission() {
+        if (DeviceOwnerManager.isDeviceOwner(this)) return
         if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU) {
             notificationPermissionLauncher.launch(Manifest.permission.POST_NOTIFICATIONS)
         }
@@ -467,6 +468,13 @@ class MainActivity : ComponentActivity() {
                 SetupActionRow("Установка обновлений (APK)", s.canInstallUpdates, onInstallUpdatesClick)
                 SetupActionRow("Батарея без ограничений", s.batteryUnrestricted, onBatteryClick)
                 SetupActionRow("Уведомления", s.notificationsGranted, onNotificationsClick)
+                if (s.isDeviceOwner) {
+                    Text(
+                        "При Device Owner уведомления приложения отключены политикой (POST_NOTIFICATIONS = DENIED)",
+                        style = MaterialTheme.typography.bodySmall,
+                        color = Color.Gray,
+                    )
+                }
                 SetupActionRow("Геолокация «Всегда»", s.locationAlways, onLocationClick)
                 if (!s.locationAlways) {
                     TextButton(onClick = onOpenAppSettingsClick) {
