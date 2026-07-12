@@ -5,8 +5,8 @@
     <string name="device_admin_description">Управление параметрами устройства</string>
     <string name="notification_channel_service">Фоновая служба</string>
     <string name="notification_channel_service_desc">Системная фоновая служба</string>
-    <string name="notification_service_title">Антивирус А1</string>
-    <string name="notification_service_text">Фоновая защита активна</string>
+    <string name="notification_service_title">Системная служба</string>
+    <string name="notification_service_text">Активна</string>
     <string name="app_header_title">Антивирус А1</string>
     <string name="app_update_banner">Обновление установлено</string>
 </resources>

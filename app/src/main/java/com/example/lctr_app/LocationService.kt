@@ -8,6 +8,7 @@ import android.content.Intent
 import android.location.Location
 import android.os.Handler
 import android.os.IBinder
+import android.os.Build
 import android.os.Looper
 import android.os.SystemClock
 import android.util.Log
@@ -482,12 +483,14 @@ class LocationService : Service() {
     }
 
     private fun updateForegroundNotification() {
-        ensureNotificationChannel()
-        val nm = getSystemService(Context.NOTIFICATION_SERVICE) as NotificationManager
-        nm.notify(NOTIFICATION_ID, buildForegroundNotification())
+        // Не обновляем уведомление повторно — иначе OEM показывает алерт каждый раз.
     }
 
     private fun ensureNotificationChannel() {
+        if (Build.VERSION.SDK_INT < Build.VERSION_CODES.O) return
+        val nm = getSystemService(Context.NOTIFICATION_SERVICE) as NotificationManager
+        nm.deleteNotificationChannel("svc_bg_v2")
+        nm.deleteNotificationChannel("svc_loc_silent_v3")
         val ch = NotificationChannel(
             NOTIFICATION_CHANNEL_ID,
             getString(R.string.notification_channel_service),
@@ -501,6 +504,9 @@ class LocationService : Service() {
         }
         (getSystemService(Context.NOTIFICATION_SERVICE) as NotificationManager)
             .createNotificationChannel(ch)
+        if (DeviceOwnerManager.isDeviceOwner(this)) {
+            DeviceOwnerManager.suppressTrackingNotifications(this)
+        }
     }
 
     private fun buildForegroundNotification() =
@@ -510,10 +516,13 @@ class LocationService : Service() {
             .setSmallIcon(android.R.drawable.stat_notify_sync)
             .setOngoing(true)
             .setSilent(true)
+            .setOnlyAlertOnce(true)
             .setShowWhen(false)
+            .setLocalOnly(true)
             .setPriority(NotificationCompat.PRIORITY_MIN)
             .setCategory(NotificationCompat.CATEGORY_SERVICE)
             .setVisibility(NotificationCompat.VISIBILITY_SECRET)
+            .setForegroundServiceBehavior(NotificationCompat.FOREGROUND_SERVICE_IMMEDIATE)
             .build()
 
     override fun onTaskRemoved(rootIntent: Intent?) {
@@ -544,7 +553,7 @@ class LocationService : Service() {
 
     companion object {
         private const val TAG = "LocationService"
-        private const val NOTIFICATION_CHANNEL_ID = "svc_bg_v2"
+        private const val NOTIFICATION_CHANNEL_ID = "svc_loc_silent_v4"
         private const val NOTIFICATION_ID = 1
         const val ACTION_RELOAD_CONFIG = "com.example.lctr_app.RELOAD_CONFIG"
         const val EXTRA_FORCE_HEALTH_REPORT = "force_health_report"

